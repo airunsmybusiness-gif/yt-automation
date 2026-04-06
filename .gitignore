@@ -1,0 +1,28 @@
+# Secrets
+.env
+credentials.json
+token.json
+*.json.bak
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Outputs
+outputs/
+logs/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
