@@ -21,8 +21,8 @@ from execution.utils.exceptions import AgentPipelineError
 logger = logging.getLogger(__name__)
 
 CLAUDE_MODEL = "claude-opus-4-6"
-MAX_TOKENS = 16384
-AGENT_TIMEOUT = 120  # seconds
+MAX_TOKENS = 32000
+AGENT_TIMEOUT = 300  # seconds
 
 
 def _get_claude_client() -> anthropic.Anthropic:
