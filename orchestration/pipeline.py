@@ -165,10 +165,9 @@ def _run_agent_pipeline(
     transcript: str,
     comments: list[dict[str, Any]],
 ) -> None:
-    """Run 4 sequential agents."""
+    """Run 4 sequential agents. Skips agents whose results already exist."""
     record_id = video["id"]
 
-    # Re-fetch video with latest data
     resp = (
         supabase_client.table("yt_viral_videos")
         .select("*")
@@ -178,8 +177,42 @@ def _run_agent_pipeline(
     )
     video = resp.data[0] if resp.data else video
 
-    analyzer_result = run_agent1_analyzer(supabase_client, video, transcript, comments)
-    strategist_result = run_agent2_strategist(supabase_client, video, analyzer_result)
+    existing_scripts = (
+        supabase_client.table("yt_scripts")
+        .select("id", count="exact")
+        .eq("viral_video_id", record_id)
+        .execute()
+    )
+    if existing_scripts.count and existing_scripts.count > 0:
+        logger.info("Scripts already exist (%d sentences), skipping agent pipeline", existing_scripts.count)
+        return
+
+    existing_analyzer = (
+        supabase_client.table("yt_viral_analyzer_results")
+        .select("*")
+        .eq("video_record_id", record_id)
+        .limit(1)
+        .execute()
+    )
+    if existing_analyzer.data:
+        logger.info("Agent 1 result exists, reusing")
+        analyzer_result = existing_analyzer.data[0]
+    else:
+        analyzer_result = run_agent1_analyzer(supabase_client, video, transcript, comments)
+
+    existing_strategist = (
+        supabase_client.table("yt_strategist_results")
+        .select("*")
+        .eq("video_record_id", record_id)
+        .limit(1)
+        .execute()
+    )
+    if existing_strategist.data:
+        logger.info("Agent 2 result exists, reusing")
+        strategist_result = existing_strategist.data[0]
+    else:
+        strategist_result = run_agent2_strategist(supabase_client, video, analyzer_result)
+
     sentences = run_agent3_script_writer(supabase_client, video, analyzer_result, strategist_result)
     optimized = run_agent4_optimizer(supabase_client, video, sentences)
     count = save_script_to_db(supabase_client, record_id, optimized)
