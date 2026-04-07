@@ -177,6 +177,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
 
     logger.info("=== YT AUTOMATION PIPELINE STARTING ===")
 
+    # Decode GCP service account JSON from base64 env var if present
+    gcp_b64 = os.environ.get("GCP_SERVICE_ACCOUNT_JSON_BASE64")
+    if gcp_b64:
+        import base64
+        from pathlib import Path
+        sa_path = Path("/app/service-account.json")
+        sa_path.write_bytes(base64.b64decode(gcp_b64))
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(sa_path)
+        logger.info("Decoded GCP service account JSON to %s", sa_path)
+
     # Load settings (fails fast on missing env vars)
     _app_settings = load_settings()
 
