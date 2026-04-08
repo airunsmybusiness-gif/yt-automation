@@ -9,15 +9,29 @@ import struct
 import time
 from typing import Any
 
+import google.auth
+import google.auth.transport.requests
 import requests
 
 from execution.services.gcs_client import ensure_bucket_exists, upload_bytes
 
 logger = logging.getLogger(__name__)
 
-GEMINI_TTS_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent"
+GCP_PROJECT = os.environ.get("GCP_PROJECT_ID", "youtube-automation-492419")
+GCP_LOCATION = "us-central1"
+TTS_MODEL = "gemini-2.5-flash-preview-tts"
+VERTEX_TTS_URL = (
+    f"https://{GCP_LOCATION}-aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}"
+    f"/locations/{GCP_LOCATION}/publishers/google/models/{TTS_MODEL}:generateContent"
+)
 CHUNK_SIZE = 5
 VOICE_NAME = "Kore"
+
+
+def _get_vertex_token() -> str:
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    creds.refresh(google.auth.transport.requests.Request())
+    return creds.token
 
 
 def _pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
@@ -41,7 +55,7 @@ def _pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
     return buf.getvalue()
 
 
-def _generate_audio_for_text(api_key: str, text: str) -> bytes | None:
+def _generate_audio_for_text(text: str) -> bytes | None:
     payload = {
         "contents": [{"parts": [{"text": text}]}],
         "generationConfig": {
@@ -54,9 +68,13 @@ def _generate_audio_for_text(api_key: str, text: str) -> bytes | None:
         }
     }
     try:
+        token = _get_vertex_token()
         resp = requests.post(
-            GEMINI_TTS_URL,
-            params={"key": api_key},
+            VERTEX_TTS_URL,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
             json=payload,
             timeout=120,
         )
@@ -66,7 +84,7 @@ def _generate_audio_for_text(api_key: str, text: str) -> bytes | None:
         pcm = base64.b64decode(b64_audio)
         return _pcm_to_wav(pcm)
     except Exception as e:
-        logger.error("TTS generation failed: %s", e)
+        logger.error("Vertex TTS generation failed: %s", e)
         return None
 
 
@@ -92,10 +110,6 @@ def run_tts_pipeline(
     bucket_name = f"yt-{video_id.lower()}"
     ensure_bucket_exists(bucket_name)
 
-    api_key = os.environ.get("GEMINI_API_KEY")
-    if not api_key:
-        raise RuntimeError("GEMINI_API_KEY not set for TTS")
-
     chunks = []
     for i in range(0, len(sentences), CHUNK_SIZE):
         chunks.append(sentences[i:i + CHUNK_SIZE])
@@ -108,15 +122,15 @@ def run_tts_pipeline(
 
         # Always sleep BEFORE call to stay under 10 req/min
         if batch_num > 0:
-            time.sleep(25)
+            time.sleep(5)
 
         logger.info("TTS chunk %d/%d (sentences %d-%d)", batch_num + 1, len(chunks), start_num, end_num)
 
-        wav_bytes = _generate_audio_for_text(api_key, text)
+        wav_bytes = _generate_audio_for_text(text)
         if not wav_bytes:
             logger.warning("TTS chunk %d failed, sleeping 60s and retrying once", batch_num)
             time.sleep(60)
-            wav_bytes = _generate_audio_for_text(api_key, text)
+            wav_bytes = _generate_audio_for_text(text)
             if not wav_bytes:
                 logger.error("Skipping chunk %d (TTS failed after retry)", batch_num)
                 continue
