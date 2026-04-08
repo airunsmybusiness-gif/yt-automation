@@ -56,7 +56,7 @@ def update_viral_video(
 ) -> dict[str, Any]:
     """Update a viral video record by primary key."""
     resp = client.table("yt_viral_videos").update(updates).eq("id", record_id).execute()
-    logger.info("Updated viral video id=%d: %s", record_id, list(updates.keys()))
+    logger.info("Updated viral video id=%s: %s", record_id, list(updates.keys()))
     return resp.data[0]
 
 
@@ -122,7 +122,7 @@ def mark_key_exhausted(client: Client, account_id: int) -> None:
     client.table("yt_api_accounts").update(
         {"quota_exhausted": True}
     ).eq("id", account_id).execute()
-    logger.warning("ANNEALING: Marked API key id=%d as exhausted", account_id)
+    logger.warning("ANNEALING: Marked API key id=%s as exhausted", account_id)
 
 
 def reset_all_quotas(client: Client) -> int:

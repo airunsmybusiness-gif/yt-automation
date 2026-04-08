@@ -106,12 +106,20 @@ def run_tts_pipeline(
         start_num = chunk[0]["sentence_number"]
         end_num = chunk[-1]["sentence_number"]
 
+        # Always sleep BEFORE call to stay under 10 req/min
+        if batch_num > 0:
+            time.sleep(7)
+
         logger.info("TTS chunk %d/%d (sentences %d-%d)", batch_num + 1, len(chunks), start_num, end_num)
 
         wav_bytes = _generate_audio_for_text(api_key, text)
         if not wav_bytes:
-            logger.error("Skipping chunk %d (TTS failed)", batch_num)
-            continue
+            logger.warning("TTS chunk %d failed, sleeping 60s and retrying once", batch_num)
+            time.sleep(60)
+            wav_bytes = _generate_audio_for_text(api_key, text)
+            if not wav_bytes:
+                logger.error("Skipping chunk %d (TTS failed after retry)", batch_num)
+                continue
 
         file_path = f"audio_files/audio_{batch_num:04d}.wav"
         upload_bytes(bucket_name, file_path, wav_bytes, content_type="audio/wav")
@@ -129,7 +137,6 @@ def run_tts_pipeline(
         }).execute()
 
         audio_count += 1
-        time.sleep(7)
 
     logger.info("TTS pipeline complete: %d audio files", audio_count)
     return audio_count
