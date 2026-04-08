@@ -35,7 +35,8 @@ def render_video(
         return None
 
     payload = {
-        "viral_video_id": video_id,
+        "viral_video_id": video_record_id,
+        "video_id": video_id,
         "bg_music_name": bg_music_name,
         "bg_volume": bg_volume,
     }

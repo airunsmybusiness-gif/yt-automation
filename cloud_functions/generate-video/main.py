@@ -35,11 +35,12 @@ def generate_video(request):
     start_time = time.time()
     supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
     data = request.get_json(silent=True) or {}
-    video_id = data.get('viral_video_id')
+    viral_video_id = data.get('viral_video_id')  # UUID for DB
+    video_id = data.get('video_id')              # YouTube string for bucket
     bg_music_name = data.get('bg_music_name', 'audio1.mp3')
     bg_vol = data.get('bg_volume', 0.15)
-    if not video_id:
-        return jsonify({"error": "viral_video_id is required"}), 400
+    if not viral_video_id or not video_id:
+        return jsonify({"error": "viral_video_id (UUID) and video_id (YouTube) both required"}), 400
     tmpdir = tempfile.mkdtemp()
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     try:
@@ -68,7 +69,7 @@ def generate_video(request):
         if not image_map:
             return jsonify({"error": "No valid images found"}), 500
         available_keys = sorted(image_map.keys())
-        audio_res = supabase.table("yt_audio_files").select("*").eq("viral_video_id", video_id).order("start_sentence_number").execute()
+        audio_res = supabase.table("yt_audio_files").select("*").eq("viral_video_id", viral_video_id).order("start_sentence_number").execute()
         if not audio_res.data:
             return jsonify({"error": "No audio files found"}), 404
         sentence_numbers = [rec['start_sentence_number'] for rec in audio_res.data]
