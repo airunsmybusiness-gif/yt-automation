@@ -57,7 +57,7 @@ def _pcm_to_wav(pcm_data: bytes, sample_rate: int = 24000) -> bytes:
 
 def _generate_audio_for_text(text: str) -> bytes | None:
     payload = {
-        "contents": [{"parts": [{"text": text}]}],
+        "contents": [{"role": "user", "parts": [{"text": text}]}],
         "generationConfig": {
             "responseModalities": ["AUDIO"],
             "speechConfig": {
