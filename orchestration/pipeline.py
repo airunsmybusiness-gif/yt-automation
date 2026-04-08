@@ -167,6 +167,12 @@ def _run_agent_pipeline(
 ) -> None:
     """Run 4 sequential agents. Skips agents whose results already exist."""
     record_id = video["id"]
+    
+    # HARD SKIP: if scripts exist, return immediately
+    scripts_check = supabase_client.table("yt_scripts").select("id").eq("viral_video_id", record_id).limit(1).execute()
+    if scripts_check.data:
+        logger.info("HARD SKIP: %d scripts found for %s, jumping to media gen", len(scripts_check.data), record_id)
+        return
 
     resp = (
         supabase_client.table("yt_viral_videos")
