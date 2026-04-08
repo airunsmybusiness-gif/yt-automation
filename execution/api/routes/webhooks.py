@@ -33,6 +33,11 @@ def _get_deps(request: Any) -> tuple[Any, Any]:
     return app.state.supabase_client, app.state.settings
 
 
+@router.get("/version")
+async def version():
+    return {"commit": "6e591e1"}
+
+
 @router.get("/health")
 async def health_check() -> dict[str, str]:
     """Health check endpoint for Railway."""
