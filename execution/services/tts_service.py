@@ -122,7 +122,7 @@ def run_tts_pipeline(
 
         # Always sleep BEFORE call to stay under 10 req/min
         if batch_num > 0:
-            time.sleep(5)
+            time.sleep(2)
 
         logger.info("TTS chunk %d/%d (sentences %d-%d)", batch_num + 1, len(chunks), start_num, end_num)
 

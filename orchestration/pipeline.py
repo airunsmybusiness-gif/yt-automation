@@ -254,8 +254,8 @@ def _run_media_generation(
             run_image_pipeline, supabase_client, record_id, video_id
         )
 
-        tts_count = tts_future.result(timeout=900)
-        img_batch = img_future.result(timeout=900)
+        tts_count = tts_future.result(timeout=1800)
+        img_batch = img_future.result(timeout=1800)
 
     logger.info(
         "Media generation: %d audio files, image batch=%s",
