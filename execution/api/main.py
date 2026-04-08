@@ -241,9 +241,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         _app_settings.quota_reset_hour_utc,
     )
 
-    # Run initial discovery on startup
-    logger.info("Running initial discovery on startup...")
-    await job_discover_videos()
+    # Skip initial discovery on startup (blocks healthcheck)
+    logger.info("Skipping initial discovery on startup")
 
     yield
 
