@@ -1,3 +1,4 @@
+import base64
 import functions_framework
 import json
 import time
@@ -7,6 +8,41 @@ from flask import jsonify
 from google.cloud import storage
 import google.auth
 import google.auth.transport.requests
+
+
+IMAGEN_MODEL = "imagen-3.0-generate-002"
+
+
+def _get_token():
+    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+    creds.refresh(google.auth.transport.requests.Request())
+    return creds.token
+
+
+def _generate_one_image(token, project_id, location, prompt):
+    url = (
+        f"https://{location}-aiplatform.googleapis.com/v1/projects/{project_id}"
+        f"/locations/{location}/publishers/google/models/{IMAGEN_MODEL}:predict"
+    )
+    payload = {
+        "instances": [{"prompt": prompt}],
+        "parameters": {
+            "sampleCount": 1,
+            "aspectRatio": "16:9",
+            "safetyFilterLevel": "block_only_high",
+            "personGeneration": "allow_adult",
+        },
+    }
+    resp = requests.post(
+        url,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+        json=payload,
+        timeout=60,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    b64_img = data["predictions"][0]["bytesBase64Encoded"]
+    return base64.b64decode(b64_img)
 
 
 @functions_framework.http
@@ -23,132 +59,89 @@ def process_batch_images(request):
     try:
         body = request.get_json(silent=True) or {}
         image_jobs = body.get('image_jobs', [])
-        reference_image_base64 = body.get('reference_image_base64')
-        model = body.get('model', 'gemini-3-pro-preview')
         project_id = body.get('project_id')
-        location = body.get('location', 'global')
-        input_bucket = body.get('input_bucket')
+        location = body.get('location', 'us-central1')
         output_bucket = body.get('output_bucket')
 
-        missing = [k for k, v in {
-            'image_jobs': image_jobs,
-            'reference_image_base64': reference_image_base64,
-            'project_id': project_id,
-            'input_bucket': input_bucket,
-            'output_bucket': output_bucket,
-        }.items() if not v]
-        if missing:
-            return (jsonify({'error': f'Missing fields: {missing}'}), 400, headers)
+        if not all([image_jobs, project_id, output_bucket]):
+            return (jsonify({'error': 'Missing required fields'}), 400, headers)
 
-        lines = []
-        for idx, job in enumerate(image_jobs):
-            key = (job.get('sentence_number') or
-                   job.get('start_sentence_number') or
-                   job.get('key') or
-                   job.get('id') or
-                   idx + 1)
-            lines.append(json.dumps({
-                "key": str(key),
-                "request": {
-                    "contents": [{
-                        "role": "user",
-                        "parts": [
-                            {"text": job["formatted_prompt"]},
-                            {"inline_data": {
-                                "mime_type": "image/jpeg",
-                                "data": reference_image_base64,
-                            }},
-                        ],
-                    }],
-                    "generation_config": {
-                        "response_modalities": ["IMAGE"],
-                        "image_config": {
-                            "aspect_ratio": "16:9",
-                            "image_size": "2K",
-                        },
-                    },
-                },
-            }))
-        jsonl_content = "\n".join(lines)
-
-        parts = input_bucket.replace("gs://", "").split("/", 1)
+        parts = output_bucket.replace("gs://", "").rstrip("/").split("/", 1)
         bucket_name = parts[0]
         prefix = parts[1] if len(parts) > 1 else ""
 
         storage_client = storage.Client(project=project_id)
         bucket = storage_client.bucket(bucket_name)
         if not bucket.exists():
-            try:
-                bucket = storage_client.create_bucket(bucket_name, location="us-central1")
-                print(f"Created bucket: {bucket_name}")
-            except Exception as create_err:
-                return (jsonify({
-                    'error': 'Failed to create bucket',
-                    'bucket': bucket_name,
-                    'details': str(create_err),
-                }), 500, headers)
+            bucket = storage_client.create_bucket(bucket_name, location="us-central1")
+            print(f"Created bucket: {bucket_name}")
 
+        token = _get_token()
         ts = int(time.time())
-        file_name = f"{prefix}/batch-image-{ts}.jsonl" if prefix else f"batch-image-{ts}.jsonl"
-        file_name = file_name.lstrip("/")
+        batch_name = f"image-batch-{ts}"
 
-        blob = bucket.blob(file_name)
-        try:
-            blob.upload_from_string(jsonl_content, content_type="application/jsonl")
-        except Exception as up_err:
+        predictions_jsonl_lines = []
+        success_count = 0
+        failure_count = 0
+
+        for idx, job in enumerate(image_jobs):
+            key = str(
+                job.get('sentence_number') or
+                job.get('start_sentence_number') or
+                job.get('key') or
+                idx + 1
+            )
+            prompt = job.get('formatted_prompt', '')
+
+            try:
+                img_bytes = _generate_one_image(token, project_id, location, prompt)
+                b64_img = base64.b64encode(img_bytes).decode('utf-8')
+
+                # Refresh token every 50 images to avoid expiry mid-batch
+                if (idx + 1) % 50 == 0:
+                    token = _get_token()
+
+                # Write in Gemini-batch-compatible format so generate-video CF can read it
+                predictions_jsonl_lines.append(json.dumps({
+                    "key": key,
+                    "response": {
+                        "candidates": [{
+                            "content": {
+                                "parts": [{
+                                    "inlineData": {
+                                        "mimeType": "image/png",
+                                        "data": b64_img,
+                                    }
+                                }]
+                            }
+                        }]
+                    }
+                }))
+                success_count += 1
+                print(f"Generated image {idx + 1}/{len(image_jobs)} (key={key})")
+            except Exception as img_err:
+                failure_count += 1
+                print(f"Failed image {idx + 1}/{len(image_jobs)} (key={key}): {img_err}")
+                continue
+
+        if success_count == 0:
             return (jsonify({
-                'error': 'Failed to upload JSONL',
-                'bucket': bucket_name,
-                'file': file_name,
-                'details': str(up_err),
+                "error": "All image generations failed",
+                "failure_count": failure_count,
             }), 500, headers)
 
-        input_uri = f"gs://{bucket_name}/{file_name}"
+        # Upload single prediction JSONL that matches what generate-video expects
+        pred_file = f"{prefix}/prediction-{ts}.jsonl".lstrip("/") if prefix else f"images/prediction-{ts}.jsonl"
+        blob = bucket.blob(pred_file)
+        blob.upload_from_string("\n".join(predictions_jsonl_lines), content_type="application/jsonl")
 
-        credentials, _ = google.auth.default()
-        credentials.refresh(google.auth.transport.requests.Request())
-        token = credentials.token
-
-        endpoint_host = "aiplatform.googleapis.com" if location == "global" else f"{location}-aiplatform.googleapis.com"
-        endpoint = f"https://{endpoint_host}/v1/projects/{project_id}/locations/{location}/batchPredictionJobs"
-
-        payload = {
-            "displayName": f"image-batch-{ts}",
-            "model": f"publishers/google/models/{model}",
-            "inputConfig": {
-                "instancesFormat": "jsonl",
-                "gcsSource": {"uris": [input_uri]},
-            },
-            "outputConfig": {
-                "predictionsFormat": "jsonl",
-                "gcsDestination": {"outputUriPrefix": output_bucket},
-            },
-        }
-
-        res = requests.post(
-            endpoint,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=60,
-        )
-
-        if res.status_code not in (200, 201):
-            return (jsonify({
-                "error": "Vertex AI API error",
-                "status_code": res.status_code,
-                "details": res.text[:1000],
-                "endpoint": endpoint,
-            }), 500, headers)
-
-        job_response = res.json()
         return (jsonify({
             "success": True,
-            "batch_job_name": job_response.get("name"),
-            "input_uri": input_uri,
+            "batch_job_name": batch_name,
             "total_images": len(image_jobs),
+            "success_count": success_count,
+            "failure_count": failure_count,
+            "output_file": f"gs://{bucket_name}/{pred_file}",
         }), 200, headers)
 
     except Exception as e:

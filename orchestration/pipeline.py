@@ -277,28 +277,9 @@ def _wait_for_image_batch(
     max_wait_seconds: int = 900,
     poll_interval: int = 30,
 ) -> None:
-    """Poll yt_batch_jobs until image batch completes."""
-    elapsed = 0
-    while elapsed < max_wait_seconds:
-        resp = (
-            supabase_client.table("yt_batch_jobs")
-            .select("status")
-            .eq("batch_job_name", batch_name)
-            .limit(1)
-            .execute()
-        )
-        if resp.data:
-            status = resp.data[0].get("status", "pending")
-            if status == "completed":
-                logger.info("Image batch completed: %s", batch_name)
-                return
-            if status == "failed":
-                raise RuntimeError(f"Image batch failed: {batch_name}")
-
-        time.sleep(poll_interval)
-        elapsed += poll_interval
-
-    raise RuntimeError(f"Image batch timed out after {max_wait_seconds}s: {batch_name}")
+    """No-op: synchronous CF returns only when all images are generated."""
+    logger.info("Image batch already complete (synchronous CF): %s", batch_name)
+    return
 
 
 # ---------------------------------------------------------------------------
