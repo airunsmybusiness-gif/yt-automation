@@ -218,7 +218,7 @@ def upload_to_youtube(
     tags = video_metadata.get("tags", []) if isinstance(video_metadata, dict) else []
 
     payload = {
-        "bucket_name": video_id,
+        "bucket_name": f"yt-{video_id.lower()}",
         "file_name": f"final_videos/{video_id}.mp4",
         "title": str(title)[:100],
         "description": str(description)[:5000],

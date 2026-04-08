@@ -64,7 +64,7 @@ def run_tts_pipeline(
     jsonl_content = _build_tts_jsonl(chunks)
 
     # Upload JSONL to GCS
-    bucket_name = video_id
+    bucket_name = f"yt-{video_id.lower()}"
     ensure_bucket_exists(bucket_name)
     ts = int(time.time())
     input_path = f"tts_input/batch-tts-{ts}.jsonl"

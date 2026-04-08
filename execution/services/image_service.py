@@ -97,7 +97,7 @@ def _generate_image_prompts(
 
     image_jobs = []
     # Process in batches to avoid excessive API calls
-    batch_size = 20
+    batch_size = 5
     for i in range(0, len(sentences), batch_size):
         batch = sentences[i : i + batch_size]
         batch_text = json.dumps(
@@ -218,8 +218,8 @@ def _submit_image_batch(
         "model": "gemini-3-pro-preview",
         "project_id": project_id,
         "location": "us-central1",
-        "input_bucket": f"gs://{video_id}/images/input",
-        "output_bucket": f"gs://{video_id}/images/",
+        "input_bucket": f"gs://yt-{video_id.lower()}/images/input",
+        "output_bucket": f"gs://yt-{video_id.lower()}/images/",
     }
 
     try:
