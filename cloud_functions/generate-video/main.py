@@ -44,7 +44,7 @@ def generate_video(request):
     ffmpeg_path = imageio_ffmpeg.get_ffmpeg_exe()
     try:
         storage_client = storage.Client()
-        bucket_name = video_id
+        bucket_name = f"yt-{video_id.lower()}"
         bucket = storage_client.bucket(bucket_name)
         blobs = list(storage_client.list_blobs(bucket_name, prefix="images/"))
         jsonl_blobs = [b for b in blobs if b.name.endswith(".jsonl") and "prediction" in b.name]
