@@ -179,12 +179,13 @@ def _run_agent_pipeline(
 
     existing_scripts = (
         supabase_client.table("yt_scripts")
-        .select("id", count="exact")
+        .select("id")
         .eq("viral_video_id", record_id)
+        .limit(1)
         .execute()
     )
-    if existing_scripts.count and existing_scripts.count > 0:
-        logger.info("Scripts already exist (%d sentences), skipping agent pipeline", existing_scripts.count)
+    if existing_scripts.data and len(existing_scripts.data) > 0:
+        logger.info("Scripts already exist for %s, skipping agent pipeline entirely", record_id)
         return
 
     existing_analyzer = (
