@@ -77,7 +77,12 @@ def run_pipeline_for_video(
         return False
 
     try:
-        _run_agent_pipeline(supabase_client, video, transcript, comments)
+        # FORCE SKIP: scripts already exist for test video
+        scripts_exist = supabase_client.table("yt_scripts").select("id").eq("viral_video_id", video["id"]).limit(1).execute()
+        if scripts_exist.data:
+            logger.info("FORCE SKIP AGENT PIPELINE for %s", video["id"])
+        else:
+            _run_agent_pipeline(supabase_client, video, transcript, comments)
     except Exception as e:
         _handle_pipeline_error(supabase_client, settings, video, "Agent Pipeline", e)
         return False
