@@ -90,14 +90,16 @@ def _call_claude(
                     "no explanation. Start with { or [."
                 )
 
-            message = client.messages.create(
+            raw_text = ""
+            with client.messages.stream(
                 model=CLAUDE_MODEL,
                 max_tokens=MAX_TOKENS,
                 system=system_prompt + extra_instruction,
                 messages=[{"role": "user", "content": user_message}],
-            )
-
-            raw_text = message.content[0].text.strip()
+            ) as stream:
+                for text_chunk in stream.text_stream:
+                    raw_text += text_chunk
+            raw_text = raw_text.strip()
             return _parse_json_response(raw_text)
 
         except json.JSONDecodeError as e:

@@ -129,7 +129,7 @@ def run_tts_pipeline(
         }).execute()
 
         audio_count += 1
-        time.sleep(0.5)
+        time.sleep(7)
 
     logger.info("TTS pipeline complete: %d audio files", audio_count)
     return audio_count
