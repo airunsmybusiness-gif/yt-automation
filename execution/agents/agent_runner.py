@@ -20,7 +20,19 @@ from execution.utils.exceptions import AgentPipelineError
 
 logger = logging.getLogger(__name__)
 
-CLAUDE_MODEL = "claude-opus-4-6"
+# Per-agent model selection (cost optimization)
+# Sonnet 4.6 = $3/M input, $15/M output (5x cheaper than Opus)
+# Haiku 4.5  = $1/M input, $5/M output  (15x cheaper than Opus)
+MODEL_SONNET = "claude-sonnet-4-6"
+MODEL_HAIKU = "claude-haiku-4-5"
+
+AGENT_MODELS = {
+    "analyzer":      MODEL_SONNET,  # needs reasoning over transcript+comments
+    "strategist":    MODEL_SONNET,  # needs strategic judgment
+    "script_writer": MODEL_SONNET,  # quality matters most here
+    "optimizer":     MODEL_HAIKU,   # cleanup pass, simple rules
+}
+
 MAX_TOKENS = 32000
 AGENT_TIMEOUT = 300  # seconds
 
@@ -64,6 +76,7 @@ def _call_claude(
     client: anthropic.Anthropic,
     system_prompt: str,
     user_message: str,
+    model: str = MODEL_SONNET,
     retry_on_json_error: bool = True,
 ) -> dict | list:
     """Call Claude API and parse JSON response.
@@ -90,11 +103,19 @@ def _call_claude(
                     "no explanation. Start with { or [."
                 )
 
+            # Prompt caching: cache the system prompt (90% discount on cache hits)
+            full_system = system_prompt + extra_instruction
+            system_blocks = [{
+                "type": "text",
+                "text": full_system,
+                "cache_control": {"type": "ephemeral"},
+            }]
+
             raw_text = ""
             with client.messages.stream(
-                model=CLAUDE_MODEL,
+                model=model,
                 max_tokens=MAX_TOKENS,
-                system=system_prompt + extra_instruction,
+                system=system_blocks,
                 messages=[{"role": "user", "content": user_message}],
             ) as stream:
                 for text_chunk in stream.text_stream:
@@ -156,9 +177,10 @@ def run_agent1_analyzer(
     Returns:
         Analysis JSON saved to yt_viral_analyzer_results.
     """
-    logger.info("Running Agent 1 (Analyzer) for %s", video["video_id"])
+    logger.info("Running Agent 1 (Analyzer) for %s [model=%s]", video["video_id"], AGENT_MODELS["analyzer"])
     client = _get_claude_client()
     prompt = _load_prompt(supabase_client, "agent1_analyzer")
+    model = AGENT_MODELS["analyzer"]
 
     # Format top comments for context (limit to top 50 by likes)
     sorted_comments = sorted(
@@ -185,7 +207,7 @@ def run_agent1_analyzer(
         f"TOP COMMENTS:\n{comments_text[:5000]}"
     )
 
-    result = _call_claude(client, prompt, user_msg)
+    result = _call_claude(client, prompt, user_msg, model=model)
 
     # Save to yt_viral_analyzer_results
     save_data = {
@@ -227,15 +249,16 @@ def run_agent2_strategist(
     Returns:
         Strategy JSON saved to yt_strategist_results.
     """
-    logger.info("Running Agent 2 (Strategist) for %s", video["video_id"])
+    logger.info("Running Agent 2 (Strategist) for %s [model=%s]", video["video_id"], AGENT_MODELS["strategist"])
     client = _get_claude_client()
     prompt = _load_prompt(supabase_client, "agent2_strategist")
+    model = AGENT_MODELS["strategist"]
 
     user_msg = (
         f"ANALYZER OUTPUT:\n{json.dumps(analyzer_result, indent=2)[:20000]}"
     )
 
-    result = _call_claude(client, prompt, user_msg)
+    result = _call_claude(client, prompt, user_msg, model=model)
 
     # Save to yt_strategist_results
     save_data = {
@@ -281,16 +304,17 @@ def run_agent3_script_writer(
     Returns:
         List of sentence dicts [{sentence_number, sentence_text, section, ...}].
     """
-    logger.info("Running Agent 3 (Script Writer) for %s", video["video_id"])
+    logger.info("Running Agent 3 (Script Writer) for %s [model=%s]", video["video_id"], AGENT_MODELS["script_writer"])
     client = _get_claude_client()
     prompt = _load_prompt(supabase_client, "agent3_script_writer")
+    model = AGENT_MODELS["script_writer"]
 
     user_msg = (
         f"ANALYZER OUTPUT:\n{json.dumps(analyzer_result, indent=2)[:12000]}\n\n"
         f"STRATEGIST OUTPUT:\n{json.dumps(strategist_result, indent=2)[:12000]}"
     )
 
-    result = _call_claude(client, prompt, user_msg)
+    result = _call_claude(client, prompt, user_msg, model=model)
 
     # Result should be a list or a dict with script_visual_breakdown key
     sentences = result
@@ -307,7 +331,7 @@ def run_agent3_script_writer(
             "\n\nCRITICAL: You MUST produce at least 150 sentences. "
             "The script must be 1200-2250 words. This is a hard requirement."
         )
-        result = _call_claude(client, prompt, user_msg, retry_on_json_error=True)
+        result = _call_claude(client, prompt, user_msg, model=model, retry_on_json_error=True)
         if isinstance(result, dict):
             sentences = result.get("script_visual_breakdown", result.get("sentences", []))
         else:
@@ -339,13 +363,14 @@ def run_agent4_optimizer(
     Returns:
         Cleaned list of sentence dicts.
     """
-    logger.info("Running Agent 4 (Optimizer) for %s", video["video_id"])
+    logger.info("Running Agent 4 (Optimizer) for %s [model=%s]", video["video_id"], AGENT_MODELS["optimizer"])
     client = _get_claude_client()
     prompt = _load_prompt(supabase_client, "agent4_optimizer")
+    model = AGENT_MODELS["optimizer"]
 
     user_msg = f"SCRIPT TO OPTIMIZE:\n{json.dumps(sentences, indent=2)}"
 
-    result = _call_claude(client, prompt, user_msg)
+    result = _call_claude(client, prompt, user_msg, model=model)
 
     optimized = result
     if isinstance(result, dict):
