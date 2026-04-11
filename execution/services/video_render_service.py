@@ -87,7 +87,7 @@ def generate_thumbnail(
     Returns:
         GCS URI of the thumbnail, or None on failure.
     """
-    from execution.agents.agent_runner import _get_claude_client, _load_prompt
+    from execution.agents.agent_runner import _load_prompt
 
     # Get strategist data for the title
     strat_resp = (

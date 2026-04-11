@@ -18,7 +18,7 @@ from typing import Any
 import anthropic
 import requests
 
-from execution.agents.agent_runner import _get_claude_client, _load_prompt, _call_claude
+from execution.agents.agent_runner import _load_prompt
 from execution.services.gcs_client import ensure_bucket_exists
 
 logger = logging.getLogger(__name__)
