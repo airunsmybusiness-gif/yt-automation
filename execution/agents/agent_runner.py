@@ -20,10 +20,10 @@ SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":  "gemini-2.5-flash-preview-05-20",
-    "agent2_strategist":      "gemini-2.5-flash-preview-05-20",
-    "agent3_script_writer":   "gemini-2.5-pro-preview-05-06",
-    "agent4_optimizer":       "gemini-2.5-flash-preview-05-20",
+    "agent1_analyzer":  "gemini-2.0-flash",
+    "agent2_strategist":      "gemini-2.0-flash",
+    "agent3_script_writer":   "gemini-2.0-flash",
+    "agent4_optimizer":       "gemini-2.0-flash",
 }
 
 _gemini_client: genai.Client | None = None
