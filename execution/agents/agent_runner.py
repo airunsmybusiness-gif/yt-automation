@@ -7,16 +7,22 @@ from supabase import create_client, Client
 logger = logging.getLogger(__name__)
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
-GEMINI_API_KEY_STUDIO: str = os.environ["GEMINI_API_KEY_STUDIO"]
-
-genai.configure(api_key=GEMINI_API_KEY_STUDIO)
+OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "gemini-2.0-flash",
-    "agent2_strategist":    "gemini-2.0-flash",
-    "agent3_script_writer": "gemini-2.0-flash",
-    "agent4_optimizer":     "gemini-2.0-flash",
+    "agent1_analyzer":      "gpt-4o",
+    "agent2_strategist":    "gpt-4o",
+    "agent3_script_writer": "gpt-4o",
+    "agent4_optimizer":     "gpt-4o",
 }
+
+_client: OpenAI | None = None
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=OPENAI_API_KEY)
+    return _client
 
 def _get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -28,14 +34,19 @@ def _load_prompt(agent_name: str) -> str:
         raise ValueError(f"No prompt for '{agent_name}'")
     return rows.data[0]["prompt_content"]
 
-def _call_gemini(agent_name: str, user_message: str, max_retries: int = 3) -> str:
-    model_name = AGENT_MODELS[agent_name]
+def _call_openai(agent_name: str, user_message: str, max_retries: int = 3) -> str:
+    model = AGENT_MODELS[agent_name]
     system_prompt = _load_prompt(agent_name)
+    client = _get_client()
     for attempt in range(1, max_retries + 1):
         try:
-            model = genai.GenerativeModel(model_name=model_name, system_instruction=system_prompt)
-            response = model.generate_content(user_message)
-            text = response.text
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
+                max_tokens=8192,
+                temperature=0.7,
+            )
+            text = response.choices[0].message.content
             if not text:
                 raise ValueError("Empty response")
             logger.info("agent=%s attempt=%d chars=%d", agent_name, attempt, len(text))
@@ -49,7 +60,7 @@ def _call_gemini(agent_name: str, user_message: str, max_retries: int = 3) -> st
 
 def run_agent(agent_name: str, user_message: str) -> str:
     logger.info("Running agent: %s", agent_name)
-    return _call_gemini(agent_name, user_message)
+    return _call_openai(agent_name, user_message)
 
 def run_agent1_analyzer(supabase_client: Any, video: dict, transcript: str, comments: list) -> str:
     return run_agent("agent1_analyzer", f"Transcript: {transcript}\nComments: {str(comments[:20])}\nTitle: {video.get('title','')}")
