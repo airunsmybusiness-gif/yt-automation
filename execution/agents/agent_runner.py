@@ -141,3 +141,16 @@ def run_agent4_optimizer(input_data: dict) -> str:
         f"Script:\n{input_data.get('script', '')}\n\n"
         f"Strategy:\n{input_data.get('strategist_result', '')}"
     )
+
+
+def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: str) -> None:
+    """Parse script into sentences and save to yt_scripts table."""
+    import re
+    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script_text) if s.strip()]
+    for i, sentence in enumerate(sentences, start=1):
+        supabase_client.table("yt_scripts").upsert({
+            "viral_video_id": viral_video_id,
+            "sentence_number": i,
+            "sentence_text": sentence,
+        }, on_conflict="viral_video_id,sentence_number").execute()
+    logger.info("Saved %d sentences to yt_scripts for %s", len(sentences), viral_video_id)
