@@ -21,10 +21,10 @@ GCP_PROJECT: str = os.environ.get("GCP_PROJECT_ID", "youtube-automation-492419")
 GCP_LOCATION: str = "us-central1"
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "gemini-2.0-flash",
-    "agent2_strategist":    "gemini-2.0-flash",
-    "agent3_script_writer": "gemini-1.5-pro",
-    "agent4_optimizer":     "gemini-2.0-flash",
+    "agent1_analyzer":      "publishers/google/models/gemini-2.0-flash-exp",
+    "agent2_strategist":    "publishers/google/models/gemini-2.0-flash-exp",
+    "agent3_script_writer": "publishers/google/models/gemini-1.5-pro-002",
+    "agent4_optimizer":     "publishers/google/models/gemini-2.0-flash-exp",
 }
 
 _vertex_initialized = False
