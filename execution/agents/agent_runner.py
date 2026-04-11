@@ -20,10 +20,10 @@ SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 
 AGENT_MODELS: dict[str, str] = {
-    "viral_analyzer":  "gemini-2.5-flash-preview-04-17",
-    "strategist":      "gemini-2.5-flash-preview-04-17",
-    "script_writer":   "gemini-2.5-pro-preview-03-25",
-    "optimizer":       "gemini-2.5-flash-preview-04-17",
+    "agent1_analyzer":  "gemini-2.5-flash-preview-04-17",
+    "agent2_strategist":      "gemini-2.5-flash-preview-04-17",
+    "agent3_script_writer":   "gemini-2.5-pro-preview-03-25",
+    "agent4_optimizer":       "gemini-2.5-flash-preview-04-17",
 }
 
 _gemini_client: genai.Client | None = None
@@ -94,20 +94,20 @@ def run_agent(agent_name: str, user_message: str) -> str:
 def run_pipeline(viral_video_id: str, input_data: dict[str, Any]) -> dict[str, Any]:
     results: dict[str, Any] = {}
 
-    results["viral_analyzer"] = run_agent("viral_analyzer",
+    results["agent1_analyzer"] = run_agent("agent1_analyzer",
         f"Transcript: {input_data.get('transcript', '')}\n"
         f"Comments sample: {input_data.get('comments', '')}\n"
         f"Competitor thumbnail: {input_data.get('thumbnail_url', '')}"
     )
-    results["strategist"] = run_agent("strategist",
+    results["agent2_strategist"] = run_agent("agent2_strategist",
         f"Viral analysis:\n{results['viral_analyzer']}\n\n"
         f"Original title: {input_data.get('title', '')}"
     )
-    results["script_writer"] = run_agent("script_writer",
+    results["agent3_script_writer"] = run_agent("agent3_script_writer",
         f"Strategy:\n{results['strategist']}\n\n"
         f"Transcript for research:\n{input_data.get('transcript', '')}"
     )
-    results["optimizer"] = run_agent("optimizer",
+    results["agent4_optimizer"] = run_agent("agent4_optimizer",
         f"Script:\n{results['script_writer']}\n\n"
         f"Strategy:\n{results['strategist']}"
     )
@@ -118,26 +118,26 @@ def run_pipeline(viral_video_id: str, input_data: dict[str, Any]) -> dict[str, A
 
 # Legacy aliases for orchestration/pipeline.py compatibility
 def run_agent1_analyzer(input_data: dict) -> str:
-    return run_agent("viral_analyzer", 
+    return run_agent("agent1_analyzer", 
         f"Transcript: {input_data.get('transcript', '')}\n"
         f"Comments sample: {input_data.get('comments', '')}\n"
         f"Competitor thumbnail: {input_data.get('thumbnail_url', '')}"
     )
 
 def run_agent2_strategist(input_data: dict) -> str:
-    return run_agent("strategist",
+    return run_agent("agent2_strategist",
         f"Viral analysis:\n{input_data.get('analyzer_result', '')}\n\n"
         f"Original title: {input_data.get('title', '')}"
     )
 
 def run_agent3_script_writer(input_data: dict) -> str:
-    return run_agent("script_writer",
+    return run_agent("agent3_script_writer",
         f"Strategy:\n{input_data.get('strategist_result', '')}\n\n"
         f"Transcript for research:\n{input_data.get('transcript', '')}"
     )
 
 def run_agent4_optimizer(input_data: dict) -> str:
-    return run_agent("optimizer",
+    return run_agent("agent4_optimizer",
         f"Script:\n{input_data.get('script', '')}\n\n"
         f"Strategy:\n{input_data.get('strategist_result', '')}"
     )
@@ -158,27 +158,27 @@ def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: st
 
 # Overwrite legacy aliases with correct signatures matching orchestration/pipeline.py
 def run_agent1_analyzer(supabase_client: Any, video: dict, transcript: str, comments: list) -> str:
-    return run_agent("viral_analyzer",
+    return run_agent("agent1_analyzer",
         f"Transcript: {transcript}\n"
         f"Comments sample: {str(comments[:20])}\n"
         f"Video title: {video.get('title', '')}"
     )
 
 def run_agent2_strategist(supabase_client: Any, video: dict, analyzer_result: str) -> str:
-    return run_agent("strategist",
+    return run_agent("agent2_strategist",
         f"Viral analysis:\n{analyzer_result}\n\n"
         f"Original title: {video.get('title', '')}"
     )
 
 def run_agent3_script_writer(supabase_client: Any, video: dict, analyzer_result: str, strategist_result: str) -> str:
-    return run_agent("script_writer",
+    return run_agent("agent3_script_writer",
         f"Strategy:\n{strategist_result}\n\n"
         f"Viral analysis:\n{analyzer_result}\n\n"
         f"Video title: {video.get('title', '')}"
     )
 
 def run_agent4_optimizer(supabase_client: Any, video: dict, script: str) -> str:
-    return run_agent("optimizer",
+    return run_agent("agent4_optimizer",
         f"Script:\n{script}\n\n"
         f"Video title: {video.get('title', '')}"
     )
