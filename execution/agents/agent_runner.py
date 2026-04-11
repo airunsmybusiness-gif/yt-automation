@@ -154,3 +154,31 @@ def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: st
             "sentence_text": sentence,
         }, on_conflict="viral_video_id,sentence_number").execute()
     logger.info("Saved %d sentences to yt_scripts for %s", len(sentences), viral_video_id)
+
+
+# Overwrite legacy aliases with correct signatures matching orchestration/pipeline.py
+def run_agent1_analyzer(supabase_client: Any, video: dict, transcript: str, comments: list) -> str:
+    return run_agent("viral_analyzer",
+        f"Transcript: {transcript}\n"
+        f"Comments sample: {str(comments[:20])}\n"
+        f"Video title: {video.get('title', '')}"
+    )
+
+def run_agent2_strategist(supabase_client: Any, video: dict, analyzer_result: str) -> str:
+    return run_agent("strategist",
+        f"Viral analysis:\n{analyzer_result}\n\n"
+        f"Original title: {video.get('title', '')}"
+    )
+
+def run_agent3_script_writer(supabase_client: Any, video: dict, analyzer_result: str, strategist_result: str) -> str:
+    return run_agent("script_writer",
+        f"Strategy:\n{strategist_result}\n\n"
+        f"Viral analysis:\n{analyzer_result}\n\n"
+        f"Video title: {video.get('title', '')}"
+    )
+
+def run_agent4_optimizer(supabase_client: Any, video: dict, script: str) -> str:
+    return run_agent("optimizer",
+        f"Script:\n{script}\n\n"
+        f"Video title: {video.get('title', '')}"
+    )
