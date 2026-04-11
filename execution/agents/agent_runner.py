@@ -1,7 +1,7 @@
 from __future__ import annotations
 import logging, os, re, time
 from typing import Any
-import google.generativeai as genai
+from openai import OpenAI
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
