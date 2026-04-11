@@ -1,432 +1,116 @@
-"""Agent runner — sequential Claude API calls for the 4-agent pipeline.
-
-Agent 1 (Analyzer): video + transcript + comments → analysis JSON
-Agent 2 (Strategist): Agent 1 output → strategy JSON
-Agent 3 (Script Writer): Agent 1 + Agent 2 → sentence array
-Agent 4 (Optimizer): Agent 3 → cleaned sentence array
-
-All prompts loaded from yt_agent_prompts table.
-All agents return strict JSON only.
 """
+execution/agents/agent_runner.py
+DOE Execution layer — runs 4-agent pipeline via Gemini 2.5.
+"""
+from __future__ import annotations
 
-import json
 import logging
 import os
+import time
 from typing import Any
 
-import anthropic
-
-from execution.utils.exceptions import AgentPipelineError
+from google import genai
+from google.genai import types
+from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 
-# Per-agent model selection (cost optimization)
-# Sonnet 4.6 = $3/M input, $15/M output (5x cheaper than Opus)
-# Haiku 4.5  = $1/M input, $5/M output  (15x cheaper than Opus)
-MODEL_SONNET = "claude-sonnet-4-6"
-MODEL_HAIKU = "claude-haiku-4-5"
+GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
+SUPABASE_URL: str = os.environ["SUPABASE_URL"]
+SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 
-AGENT_MODELS = {
-    "analyzer":      MODEL_SONNET,  # needs reasoning over transcript+comments
-    "strategist":    MODEL_SONNET,  # needs strategic judgment
-    "script_writer": MODEL_SONNET,  # quality matters most here
-    "optimizer":     MODEL_HAIKU,   # cleanup pass, simple rules
+AGENT_MODELS: dict[str, str] = {
+    "viral_analyzer":  "gemini-2.5-flash-preview-04-17",
+    "strategist":      "gemini-2.5-flash-preview-04-17",
+    "script_writer":   "gemini-2.5-pro-preview-03-25",
+    "optimizer":       "gemini-2.5-flash-preview-04-17",
 }
 
-MAX_TOKENS = 32000
-AGENT_TIMEOUT = 300  # seconds
+_gemini_client: genai.Client | None = None
 
 
-def _get_claude_client() -> anthropic.Anthropic:
-    """Create Claude API client."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if not api_key:
-        raise AgentPipelineError("ANTHROPIC_API_KEY not set")
-    return anthropic.Anthropic(api_key=api_key)
+def _get_gemini_client() -> genai.Client:
+    global _gemini_client
+    if _gemini_client is None:
+        _gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+    return _gemini_client
 
 
-def _load_prompt(supabase_client: Any, agent_name: str) -> str:
-    """Load agent prompt from yt_agent_prompts table.
+def _get_supabase() -> Client:
+    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-    Args:
-        supabase_client: Supabase client.
-        agent_name: One of: agent1_analyzer, agent2_strategist,
-                    agent3_script_writer, agent4_optimizer.
 
-    Returns:
-        The prompt_content string.
-
-    Raises:
-        AgentPipelineError: If prompt not found.
-    """
-    resp = (
-        supabase_client.table("yt_agent_prompts")
-        .select("prompt_content")
+def _load_prompt(agent_name: str) -> str:
+    sb = _get_supabase()
+    row = (
+        sb.table("yt_agent_prompts")
+        .select("prompt_text")
         .eq("agent_name", agent_name)
-        .eq("is_active", True)
-        .limit(1)
+        .single()
         .execute()
     )
-    if not resp.data:
-        raise AgentPipelineError(f"Agent prompt '{agent_name}' not found in DB")
-    return resp.data[0]["prompt_content"]
+    if not row.data:
+        raise ValueError(f"No prompt found for agent '{agent_name}'")
+    return row.data["prompt_text"]
 
 
-def _call_claude(
-    client: anthropic.Anthropic,
-    system_prompt: str,
-    user_message: str,
-    model: str = MODEL_SONNET,
-    retry_on_json_error: bool = True,
-) -> dict | list:
-    """Call Claude API and parse JSON response.
+def _call_gemini(agent_name: str, user_message: str, max_retries: int = 3) -> str:
+    model_id = AGENT_MODELS[agent_name]
+    system_prompt = _load_prompt(agent_name)
+    client = _get_gemini_client()
 
-    Args:
-        client: Anthropic client.
-        system_prompt: System prompt from yt_agent_prompts.
-        user_message: The user message with data payload.
-        retry_on_json_error: If True, retry once with stricter prompt on parse failure.
-
-    Returns:
-        Parsed JSON (dict or list).
-
-    Raises:
-        AgentPipelineError: On persistent failures.
-    """
-    for attempt in range(2 if retry_on_json_error else 1):
+    for attempt in range(1, max_retries + 1):
         try:
-            extra_instruction = ""
-            if attempt > 0:
-                extra_instruction = (
-                    "\n\nCRITICAL: Your previous response was not valid JSON. "
-                    "Respond ONLY with valid JSON. No markdown, no code fences, "
-                    "no explanation. Start with { or [."
-                )
-
-            # Prompt caching: cache the system prompt (90% discount on cache hits)
-            full_system = system_prompt + extra_instruction
-            system_blocks = [{
-                "type": "text",
-                "text": full_system,
-                "cache_control": {"type": "ephemeral"},
-            }]
-
-            raw_text = ""
-            with client.messages.stream(
-                model=model,
-                max_tokens=MAX_TOKENS,
-                system=system_blocks,
-                messages=[{"role": "user", "content": user_message}],
-            ) as stream:
-                for text_chunk in stream.text_stream:
-                    raw_text += text_chunk
-            raw_text = raw_text.strip()
-            return _parse_json_response(raw_text)
-
-        except json.JSONDecodeError as e:
-            logger.warning(
-                "ANNEALING: Agent returned invalid JSON (attempt %d): %s",
-                attempt + 1, str(e)[:200],
+            response = client.models.generate_content(
+                model=model_id,
+                contents=user_message,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.7,
+                    max_output_tokens=8192,
+                ),
             )
-            if attempt == 0 and retry_on_json_error:
-                continue
-            raise AgentPipelineError(
-                f"Agent returned invalid JSON after retry: {str(e)[:200]}"
-            ) from e
+            text = response.text
+            if not text:
+                raise ValueError("Empty response from Gemini")
+            logger.info("agent=%s model=%s attempt=%d chars=%d", agent_name, model_id, attempt, len(text))
+            return text
+        except Exception as exc:
+            logger.warning("agent=%s attempt=%d error=%s", agent_name, attempt, exc)
+            if attempt == max_retries:
+                raise
+            time.sleep(2 ** attempt)
 
-        except anthropic.APIError as e:
-            logger.error("Claude API error: %s", e)
-            raise AgentPipelineError(f"Claude API error: {e}") from e
-
-    raise AgentPipelineError("Unreachable")  # pragma: no cover
-
-
-def _parse_json_response(text: str) -> dict | list:
-    """Parse JSON from Claude response, stripping code fences if present."""
-    # Strip markdown code fences
-    if text.startswith("```"):
-        lines = text.split("\n")
-        # Remove first and last lines if they're fences
-        if lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].strip() == "```":
-            lines = lines[:-1]
-        text = "\n".join(lines).strip()
-
-    return json.loads(text)
+    raise RuntimeError(f"_call_gemini exhausted retries for {agent_name}")
 
 
-# ---------------------------------------------------------------------------
-# Agent 1: Viral Analyzer
-# ---------------------------------------------------------------------------
+def run_agent(agent_name: str, user_message: str) -> str:
+    if agent_name not in AGENT_MODELS:
+        raise ValueError(f"Unknown agent '{agent_name}'. Valid: {list(AGENT_MODELS)}")
+    logger.info("Running agent: %s", agent_name)
+    return _call_gemini(agent_name, user_message)
 
-def run_agent1_analyzer(
-    supabase_client: Any,
-    video: dict[str, Any],
-    transcript: str,
-    comments: list[dict[str, Any]],
-) -> dict[str, Any]:
-    """Run Agent 1 — Viral Analyzer.
 
-    Args:
-        supabase_client: Supabase client.
-        video: yt_viral_videos record.
-        transcript: Full transcript text.
-        comments: List of comment records.
+def run_pipeline(viral_video_id: str, input_data: dict[str, Any]) -> dict[str, Any]:
+    results: dict[str, Any] = {}
 
-    Returns:
-        Analysis JSON saved to yt_viral_analyzer_results.
-    """
-    logger.info("Running Agent 1 (Analyzer) for %s [model=%s]", video["video_id"], AGENT_MODELS["analyzer"])
-    client = _get_claude_client()
-    prompt = _load_prompt(supabase_client, "agent1_analyzer")
-    model = AGENT_MODELS["analyzer"]
-
-    # Format top comments for context (limit to top 50 by likes)
-    sorted_comments = sorted(
-        comments, key=lambda c: c.get("like_count", 0), reverse=True
-    )[:50]
-    comments_text = "\n".join(
-        f"[{c.get('like_count', 0)} likes] {c.get('content', '')[:300]}"
-        for c in sorted_comments
+    results["viral_analyzer"] = run_agent("viral_analyzer",
+        f"Transcript: {input_data.get('transcript', '')}\n"
+        f"Comments sample: {input_data.get('comments', '')}\n"
+        f"Competitor thumbnail: {input_data.get('thumbnail_url', '')}"
+    )
+    results["strategist"] = run_agent("strategist",
+        f"Viral analysis:\n{results['viral_analyzer']}\n\n"
+        f"Original title: {input_data.get('title', '')}"
+    )
+    results["script_writer"] = run_agent("script_writer",
+        f"Strategy:\n{results['strategist']}\n\n"
+        f"Transcript for research:\n{input_data.get('transcript', '')}"
+    )
+    results["optimizer"] = run_agent("optimizer",
+        f"Script:\n{results['script_writer']}\n\n"
+        f"Strategy:\n{results['strategist']}"
     )
 
-    user_msg = (
-        f"VIDEO METADATA:\n"
-        f"Title: {video.get('title', '')}\n"
-        f"Channel: {video.get('channel_title', '')}\n"
-        f"Views: {video.get('views', 0)}\n"
-        f"Likes: {video.get('likes', 0)}\n"
-        f"Comments Count: {video.get('comments', 0)}\n"
-        f"Published: {video.get('published_at', '')}\n"
-        f"Duration: {video.get('duration', '')}\n"
-        f"Tags: {video.get('tags', [])}\n"
-        f"Description: {video.get('description', '')[:500]}\n"
-        f"Thumbnail Description: {video.get('thumbnail_description', 'N/A')}\n\n"
-        f"TRANSCRIPT:\n{transcript[:15000]}\n\n"
-        f"TOP COMMENTS:\n{comments_text[:5000]}"
-    )
-
-    result = _call_claude(client, prompt, user_msg, model=model)
-
-    # Save to yt_viral_analyzer_results
-    save_data = {
-        "video_record_id": video["id"],
-        "video_id": video["video_id"],
-    }
-    # Map top-level keys from the agent output
-    for key in [
-        "analysis_metadata", "title_analysis", "script_structure",
-        "audience_intelligence", "visual_psychology",
-        "viral_formula_synthesis", "human_readable_summary",
-    ]:
-        save_data[key] = result.get(key)
-
-    supabase_client.table("yt_viral_analyzer_results").upsert(
-        save_data, on_conflict="video_record_id"
-    ).execute()
-
-    logger.info("Agent 1 complete for %s", video["video_id"])
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Agent 2: Strategist
-# ---------------------------------------------------------------------------
-
-def run_agent2_strategist(
-    supabase_client: Any,
-    video: dict[str, Any],
-    analyzer_result: dict[str, Any],
-) -> dict[str, Any]:
-    """Run Agent 2 — Strategist.
-
-    Args:
-        supabase_client: Supabase client.
-        video: yt_viral_videos record.
-        analyzer_result: Agent 1 output.
-
-    Returns:
-        Strategy JSON saved to yt_strategist_results.
-    """
-    logger.info("Running Agent 2 (Strategist) for %s [model=%s]", video["video_id"], AGENT_MODELS["strategist"])
-    client = _get_claude_client()
-    prompt = _load_prompt(supabase_client, "agent2_strategist")
-    model = AGENT_MODELS["strategist"]
-
-    user_msg = (
-        f"ANALYZER OUTPUT:\n{json.dumps(analyzer_result, indent=2)[:20000]}"
-    )
-
-    result = _call_claude(client, prompt, user_msg, model=model)
-
-    # Save to yt_strategist_results
-    save_data = {
-        "video_record_id": video["id"],
-        "video_id": video["video_id"],
-    }
-    for key in [
-        "strategy_brief", "title_options", "ranking_justification",
-        "thumbnail_concept", "video_metadata", "script_writer_instructions",
-    ]:
-        val = result.get(key)
-        if isinstance(val, str):
-            save_data[key] = val
-        else:
-            save_data[key] = val  # jsonb columns accept dicts directly
-
-    supabase_client.table("yt_strategist_results").upsert(
-        save_data, on_conflict="video_record_id"
-    ).execute()
-
-    logger.info("Agent 2 complete for %s", video["video_id"])
-    return result
-
-
-# ---------------------------------------------------------------------------
-# Agent 3: Script Writer
-# ---------------------------------------------------------------------------
-
-def run_agent3_script_writer(
-    supabase_client: Any,
-    video: dict[str, Any],
-    analyzer_result: dict[str, Any],
-    strategist_result: dict[str, Any],
-) -> list[dict[str, Any]]:
-    """Run Agent 3 — Script Writer.
-
-    Args:
-        supabase_client: Supabase client.
-        video: yt_viral_videos record.
-        analyzer_result: Agent 1 output.
-        strategist_result: Agent 2 output.
-
-    Returns:
-        List of sentence dicts [{sentence_number, sentence_text, section, ...}].
-    """
-    logger.info("Running Agent 3 (Script Writer) for %s [model=%s]", video["video_id"], AGENT_MODELS["script_writer"])
-    client = _get_claude_client()
-    prompt = _load_prompt(supabase_client, "agent3_script_writer")
-    model = AGENT_MODELS["script_writer"]
-
-    user_msg = (
-        f"ANALYZER OUTPUT:\n{json.dumps(analyzer_result, indent=2)[:12000]}\n\n"
-        f"STRATEGIST OUTPUT:\n{json.dumps(strategist_result, indent=2)[:12000]}"
-    )
-
-    result = _call_claude(client, prompt, user_msg, model=model)
-
-    # Result should be a list or a dict with script_visual_breakdown key
-    sentences = result
-    if isinstance(result, dict):
-        sentences = result.get("script_visual_breakdown", result.get("sentences", []))
-
-    if not isinstance(sentences, list) or len(sentences) < 50:
-        logger.warning(
-            "ANNEALING: Agent 3 returned only %d sentences (min 150)",
-            len(sentences) if isinstance(sentences, list) else 0,
-        )
-        # Retry with explicit length instruction
-        user_msg += (
-            "\n\nCRITICAL: You MUST produce at least 150 sentences. "
-            "The script must be 1200-2250 words. This is a hard requirement."
-        )
-        result = _call_claude(client, prompt, user_msg, model=model, retry_on_json_error=True)
-        if isinstance(result, dict):
-            sentences = result.get("script_visual_breakdown", result.get("sentences", []))
-        else:
-            sentences = result
-
-    logger.info("Agent 3 produced %d sentences for %s", len(sentences), video["video_id"])
-    return sentences
-
-
-# ---------------------------------------------------------------------------
-# Agent 4: Optimizer
-# ---------------------------------------------------------------------------
-
-def run_agent4_optimizer(
-    supabase_client: Any,
-    video: dict[str, Any],
-    sentences: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Run Agent 4 — Optimizer.
-
-    Cleans sentences: no dashes/parentheses in sentence_text,
-    facts verified, English only.
-
-    Args:
-        supabase_client: Supabase client.
-        video: yt_viral_videos record.
-        sentences: Agent 3 output.
-
-    Returns:
-        Cleaned list of sentence dicts.
-    """
-    logger.info("Running Agent 4 (Optimizer) for %s [model=%s]", video["video_id"], AGENT_MODELS["optimizer"])
-    client = _get_claude_client()
-    prompt = _load_prompt(supabase_client, "agent4_optimizer")
-    model = AGENT_MODELS["optimizer"]
-
-    user_msg = f"SCRIPT TO OPTIMIZE:\n{json.dumps(sentences, indent=2)}"
-
-    result = _call_claude(client, prompt, user_msg, model=model)
-
-    optimized = result
-    if isinstance(result, dict):
-        optimized = result.get("script_visual_breakdown", result.get("sentences", []))
-
-    logger.info(
-        "Agent 4 optimized %d sentences for %s",
-        len(optimized), video["video_id"],
-    )
-    return optimized
-
-
-# ---------------------------------------------------------------------------
-# Save final script
-# ---------------------------------------------------------------------------
-
-def save_script_to_db(
-    supabase_client: Any,
-    video_record_id: str,
-    sentences: list[dict[str, Any]],
-) -> int:
-    """Save optimized sentences to yt_scripts table.
-
-    Clears any existing sentences for this video, then inserts fresh.
-
-    Args:
-        supabase_client: Supabase client.
-        video_record_id: UUID of the yt_viral_videos record.
-        sentences: Final optimized sentence list.
-
-    Returns:
-        Number of sentences inserted.
-    """
-    # Delete existing scripts for this video
-    supabase_client.table("yt_scripts").delete().eq(
-        "viral_video_id", video_record_id
-    ).execute()
-
-    rows = [
-        {
-            "viral_video_id": video_record_id,
-            "sentence_number": s.get("sentence_number", i + 1),
-            "sentence_text": s.get("sentence_text", ""),
-            "section": s.get("section", ""),
-            "original_comparison": s.get("original_comparison", ""),
-        }
-        for i, s in enumerate(sentences)
-    ]
-
-    # Insert in batches of 50
-    for i in range(0, len(rows), 50):
-        batch = rows[i : i + 50]
-        supabase_client.table("yt_scripts").insert(batch).execute()
-
-    logger.info(
-        "Saved %d sentences to yt_scripts for %s",
-        len(rows), video_record_id,
-    )
-    return len(rows)
+    logger.info("Pipeline complete for viral_video_id=%s", viral_video_id)
+    return results
