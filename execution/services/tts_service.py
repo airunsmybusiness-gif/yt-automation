@@ -25,7 +25,7 @@ VERTEX_TTS_URL = (
     f"/locations/{GCP_LOCATION}/publishers/google/models/{TTS_MODEL}:generateContent"
 )
 CHUNK_SIZE = 5
-VOICE_NAME = "Kore"
+VOICE_NAME = "Aoede"
 
 
 def _get_vertex_token() -> str:
