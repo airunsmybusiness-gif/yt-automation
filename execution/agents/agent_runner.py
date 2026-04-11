@@ -44,14 +44,14 @@ def _load_prompt(agent_name: str) -> str:
     sb = _get_supabase()
     row = (
         sb.table("yt_agent_prompts")
-        .select("prompt_text")
+        .select("prompt_content")
         .eq("agent_name", agent_name)
         .single()
         .execute()
     )
     if not row.data:
         raise ValueError(f"No prompt found for agent '{agent_name}'")
-    return row.data["prompt_text"]
+    return row.data["prompt_content"]
 
 
 def _call_gemini(agent_name: str, user_message: str, max_retries: int = 3) -> str:
