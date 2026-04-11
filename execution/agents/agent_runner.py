@@ -22,10 +22,10 @@ GCP_PROJECT: str = os.environ.get("GCP_PROJECT_ID", "youtube-automation-492419")
 GCP_LOCATION: str = "us-central1"
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "gemini-2.5-pro-preview-05-06",
-    "agent2_strategist":    "gemini-2.5-pro-preview-05-06",
-    "agent3_script_writer": "gemini-2.5-pro-preview-05-06",
-    "agent4_optimizer":     "gemini-2.5-pro-preview-05-06",
+    "agent1_analyzer":      "claude-sonnet-4-5@20251001",
+    "agent2_strategist":    "claude-sonnet-4-5@20251001",
+    "agent3_script_writer": "claude-sonnet-4-5@20251001",
+    "agent4_optimizer":     "claude-sonnet-4-5@20251001",
 }
 
 
