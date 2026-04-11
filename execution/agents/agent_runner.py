@@ -10,10 +10,10 @@ SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 GCP_PROJECT: str = os.environ.get("GCP_PROJECT_ID", "youtube-automation-492419")
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "claude-sonnet-4-5@20251001",
-    "agent2_strategist":    "claude-sonnet-4-5@20251001",
-    "agent3_script_writer": "claude-sonnet-4-5@20251001",
-    "agent4_optimizer":     "claude-sonnet-4-5@20251001",
+    "agent1_analyzer":      "claude-sonnet-4-6@20250514",
+    "agent2_strategist":    "claude-sonnet-4-6@20250514",
+    "agent3_script_writer": "claude-sonnet-4-6@20250514",
+    "agent4_optimizer":     "claude-sonnet-4-6@20250514",
 }
 
 def _get_token() -> str:
