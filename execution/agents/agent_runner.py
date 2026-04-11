@@ -114,3 +114,30 @@ def run_pipeline(viral_video_id: str, input_data: dict[str, Any]) -> dict[str, A
 
     logger.info("Pipeline complete for viral_video_id=%s", viral_video_id)
     return results
+
+
+# Legacy aliases for orchestration/pipeline.py compatibility
+def run_agent1_analyzer(input_data: dict) -> str:
+    return run_agent("viral_analyzer", 
+        f"Transcript: {input_data.get('transcript', '')}\n"
+        f"Comments sample: {input_data.get('comments', '')}\n"
+        f"Competitor thumbnail: {input_data.get('thumbnail_url', '')}"
+    )
+
+def run_agent2_strategist(input_data: dict) -> str:
+    return run_agent("strategist",
+        f"Viral analysis:\n{input_data.get('analyzer_result', '')}\n\n"
+        f"Original title: {input_data.get('title', '')}"
+    )
+
+def run_agent3_script_writer(input_data: dict) -> str:
+    return run_agent("script_writer",
+        f"Strategy:\n{input_data.get('strategist_result', '')}\n\n"
+        f"Transcript for research:\n{input_data.get('transcript', '')}"
+    )
+
+def run_agent4_optimizer(input_data: dict) -> str:
+    return run_agent("optimizer",
+        f"Script:\n{input_data.get('script', '')}\n\n"
+        f"Strategy:\n{input_data.get('strategist_result', '')}"
+    )
