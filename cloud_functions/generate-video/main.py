@@ -160,7 +160,7 @@ def generate_video(request):
 
     try:
         storage_client = storage.Client()
-        bucket_name = f"yt-{video_id.lower()}"
+        bucket_name = f"yt-{data.get("video_id", video_id).lower()}"
         bucket = storage_client.bucket(bucket_name)
 
         jsonl_blobs = [
