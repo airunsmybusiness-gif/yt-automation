@@ -77,7 +77,7 @@ def run_agent4_optimizer(supabase_client: Any, video: dict, script: str) -> str:
 def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: str) -> int:
     sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script_text) if s.strip()]
     for i, sentence in enumerate(sentences, start=1):
-        supabase_client.table("yt_scripts").upsert({"viral_video_id": viral_video_id, "sentence_number": i, "sentence_text": sentence}, on_conflict="viral_video_id,sentence_number").execute()
+        supabase_client.table("yt_scripts").upsert({"viral_video_id": viral_video_id, "sentence_number": i, "sentence_text": sentence}, on_conflict="viral_video_id, sentence_number").execute()
     logger.info("Saved %d sentences for %s", len(sentences), viral_video_id)
     return len(sentences)
 
