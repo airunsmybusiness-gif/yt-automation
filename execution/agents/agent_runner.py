@@ -1,25 +1,28 @@
 from __future__ import annotations
 import logging, os, re, time
 from typing import Any
-import google.auth, google.auth.transport.requests, requests
+from openai import OpenAI
 from supabase import create_client, Client
 
 logger = logging.getLogger(__name__)
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
-GCP_PROJECT: str = os.environ.get("GCP_PROJECT_ID", "youtube-automation-492419")
+OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
 
 AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "claude-sonnet-4-6@20250514",
-    "agent2_strategist":    "claude-sonnet-4-6@20250514",
-    "agent3_script_writer": "claude-sonnet-4-6@20250514",
-    "agent4_optimizer":     "claude-sonnet-4-6@20250514",
+    "agent1_analyzer":      "gpt-4o",
+    "agent2_strategist":    "gpt-4o",
+    "agent3_script_writer": "gpt-4o",
+    "agent4_optimizer":     "gpt-4o",
 }
 
-def _get_token() -> str:
-    creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
-    creds.refresh(google.auth.transport.requests.Request())
-    return creds.token
+_client: OpenAI | None = None
+
+def _get_client() -> OpenAI:
+    global _client
+    if _client is None:
+        _client = OpenAI(api_key=OPENAI_API_KEY)
+    return _client
 
 def _get_supabase() -> Client:
     return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -31,22 +34,19 @@ def _load_prompt(agent_name: str) -> str:
         raise ValueError(f"No prompt for '{agent_name}'")
     return rows.data[0]["prompt_content"]
 
-def _call_claude(agent_name: str, user_message: str, max_retries: int = 3) -> str:
+def _call_openai(agent_name: str, user_message: str, max_retries: int = 3) -> str:
     model = AGENT_MODELS[agent_name]
     system_prompt = _load_prompt(agent_name)
-    url = f"https://us-east5-aiplatform.googleapis.com/v1/projects/{GCP_PROJECT}/locations/us-east5/publishers/anthropic/models/{model}:rawPredict"
-    payload = {
-        "anthropic_version": "vertex-2023-10-16",
-        "max_tokens": 8192,
-        "system": system_prompt,
-        "messages": [{"role": "user", "content": user_message}]
-    }
+    client = _get_client()
     for attempt in range(1, max_retries + 1):
         try:
-            token = _get_token()
-            resp = requests.post(url, headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"}, json=payload, timeout=120)
-            resp.raise_for_status()
-            text = resp.json()["content"][0]["text"]
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
+                max_tokens=8192,
+                temperature=0.7,
+            )
+            text = response.choices[0].message.content
             if not text:
                 raise ValueError("Empty response")
             logger.info("agent=%s attempt=%d chars=%d", agent_name, attempt, len(text))
@@ -60,7 +60,7 @@ def _call_claude(agent_name: str, user_message: str, max_retries: int = 3) -> st
 
 def run_agent(agent_name: str, user_message: str) -> str:
     logger.info("Running agent: %s", agent_name)
-    return _call_claude(agent_name, user_message)
+    return _call_openai(agent_name, user_message)
 
 def run_agent1_analyzer(supabase_client: Any, video: dict, transcript: str, comments: list) -> str:
     return run_agent("agent1_analyzer", f"Transcript: {transcript}\nComments: {str(comments[:20])}\nTitle: {video.get('title','')}")
