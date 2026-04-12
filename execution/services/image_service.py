@@ -92,7 +92,7 @@ def _generate_image_prompts(
     Returns list of dicts with sentence_number and formatted_prompt.
     """
     client = _get_openai_client()
-    prompt = _load_prompt(supabase_client, "image_generator")
+    prompt = _load_prompt("image_generator")
 
     image_jobs = []
     # Process in batches to avoid excessive API calls
