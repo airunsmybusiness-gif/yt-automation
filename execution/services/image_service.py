@@ -92,7 +92,7 @@ def _generate_image_prompts(
 
     Returns list of dicts with sentence_number and formatted_prompt.
     """
-    client = _get_claude_client()
+    client = _get_openai_client()
     prompt = _load_prompt(supabase_client, "image_generator")
 
     image_jobs = []
@@ -114,7 +114,7 @@ def _generate_image_prompts(
         )
 
         try:
-            result = _call_claude(client, prompt, user_msg)
+            result = _call_openai_for_image(client, prompt, user_msg)
             prompts = result if isinstance(result, list) else result.get("prompts", [])
             image_jobs.extend(prompts)
         except Exception as e:
@@ -230,3 +230,27 @@ def _submit_image_batch(
     except requests.RequestException as e:
         logger.error("Image batch Cloud Function failed: %s", e)
         return None
+
+
+def _get_openai_client():
+    from openai import OpenAI
+    import os
+    return OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+
+def _call_openai_for_image(client, system_prompt: str, user_msg: str):
+    import json
+    response = client.chat.completions.create(
+        model="gpt-4o",
+        messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_msg}],
+        max_tokens=4096,
+        temperature=0.7,
+    )
+    text = response.choices[0].message.content
+    try:
+        return json.loads(text)
+    except Exception:
+        import re
+        match = re.search(r'\[.*\]', text, re.DOTALL)
+        if match:
+            return json.loads(match.group())
+        return []
