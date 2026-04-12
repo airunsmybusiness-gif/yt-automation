@@ -15,7 +15,6 @@ import os
 import time
 from typing import Any
 
-import anthropic
 import requests
 
 from execution.agents.agent_runner import _load_prompt
