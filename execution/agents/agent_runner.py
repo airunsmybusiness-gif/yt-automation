@@ -75,9 +75,24 @@ def run_agent4_optimizer(supabase_client: Any, video: dict, script: str) -> str:
     return run_agent("agent4_optimizer", f"Script:\n{script}\n\nTitle: {video.get('title','')}")
 
 def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: str) -> int:
-    sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script_text) if s.strip()]
-    for i, sentence in enumerate(sentences, start=1):
-        supabase_client.table("yt_scripts").upsert({"viral_video_id": viral_video_id, "sentence_number": i, "sentence_text": sentence}, on_conflict="viral_video_id, sentence_number").execute()
+    import json as _json
+    sentences = []
+    # Try to parse JSON array from GPT output
+    try:
+        clean = script_text.strip()
+        match = re.search(r'\[.*\]', clean, re.DOTALL)
+        if match:
+            items = _json.loads(match.group())
+            if isinstance(items, list) and items and "sentence_text" in items[0]:
+                sentences = [(item["sentence_number"], item["sentence_text"]) for item in items]
+    except Exception:
+        pass
+    # Fallback: split by sentences
+    if not sentences:
+        parts = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script_text) if s.strip()]
+        sentences = [(i+1, s) for i, s in enumerate(parts)]
+    for num, text in sentences:
+        supabase_client.table("yt_scripts").upsert({"viral_video_id": viral_video_id, "sentence_number": num, "sentence_text": text}, on_conflict="viral_video_id, sentence_number").execute()
     logger.info("Saved %d sentences for %s", len(sentences), viral_video_id)
     return len(sentences)
 
