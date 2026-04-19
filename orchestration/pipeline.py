@@ -77,6 +77,7 @@ class Pipeline:
 
     def _run_full_pipeline(self, vid_id: str, yt_id: str, title: str) -> None:
         _set_status(self.sb, vid_id, "production_started")
+        self._setup_gcp_credentials()
         transcript = self._ensure_transcript(vid_id, yt_id)
         if not transcript:
             raise RuntimeError("Transcript unavailable")
@@ -240,6 +241,19 @@ class Pipeline:
         ]
         self.sb.table("yt_image_generation_jobs").insert(jobs).execute()
         log.info(f"[{vid_id[:8]}] {len(jobs)} image jobs saved")
+
+    def _setup_gcp_credentials(self) -> None:
+        """Write GCP service account JSON from env var to disk if needed."""
+        import base64, tempfile
+        sa_b64 = os.environ.get("GCP_SERVICE_ACCOUNT_JSON_BASE64", "")
+        if not sa_b64:
+            return
+        sa_path = "/tmp/service-account.json"
+        if not os.path.exists(sa_path):
+            with open(sa_path, "wb") as f:
+                f.write(base64.b64decode(sa_b64))
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = sa_path
+        log.info("GCP credentials written to /tmp/service-account.json")
 
     def _ensure_audio(self, vid_id: str, yt_id: str, sentences: list[dict]) -> None:
         existing = (
