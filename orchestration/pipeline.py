@@ -140,7 +140,7 @@ class Pipeline:
         existing = (
             self.sb.table("yt_video_transcripts")
             .select("content")
-            .eq("viral_video_id", vid_id)
+            .eq("video_record_id", vid_id)
             .eq("type", "source")
             .limit(1)
             .execute()
@@ -161,7 +161,7 @@ class Pipeline:
             content = resp.json().get("content", "")
             if content:
                 self.sb.table("yt_video_transcripts").insert({
-                    "viral_video_id": vid_id,
+                    "video_record_id": vid_id,
                     "type": "source",
                     "provider": "supadata",
                     "content": content,
@@ -182,7 +182,7 @@ class Pipeline:
             content = result.text
             if content:
                 self.sb.table("yt_video_transcripts").insert({
-                    "viral_video_id": vid_id,
+                    "video_record_id": vid_id,
                     "type": "source",
                     "provider": "gemini",
                     "content": content,
