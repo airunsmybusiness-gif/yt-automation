@@ -20,7 +20,7 @@ log = logging.getLogger("main")
 # ── Fail-fast on missing secrets ────────────────────────────────────────────
 REQUIRED = [
     "SUPABASE_URL",
-    "SUPABASE_KEY",
+    "SUPABASE_SERVICE_KEY",
     "GEMINI_API_KEY",
     "GCP_PROJECT_ID",
     "ANTHROPIC_API_KEY",

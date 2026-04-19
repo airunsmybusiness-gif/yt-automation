@@ -26,7 +26,7 @@ from supabase import Client, create_client
 log = logging.getLogger("pipeline")
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
+SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
 GCP_PROJECT_ID: str = os.environ["GCP_PROJECT_ID"]
