@@ -155,9 +155,9 @@ class Pipeline:
     def _get_comments(self, vid_id: str) -> list[dict]:
         rows = (
             self.sb.table("yt_comments")
-            .select("text,likes")
+            .select("content,like_count")
             .eq("viral_video_id", vid_id)
-            .order("likes", desc=True)
+            .order("like_count", desc=True)
             .limit(30)
             .execute()
         )
@@ -194,7 +194,7 @@ class Pipeline:
             f"Video title: {title}\n\n"
             f"Source transcript:\n{transcript[:6000]}\n\n"
             f"Top comments:\n"
-            + "\n".join(f"- {c['text']}" for c in comments[:20])
+            + "\n".join(f"- {c['content']}" for c in comments[:20])
         )
 
         resp = self.claude.messages.create(
