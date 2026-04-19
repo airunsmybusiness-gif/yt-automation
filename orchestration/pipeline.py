@@ -156,7 +156,7 @@ class Pipeline:
         rows = (
             self.sb.table("yt_comments")
             .select("content,like_count")
-            .eq("viral_video_id", vid_id)
+            .eq("video_record_id", vid_id)
             .order("like_count", desc=True)
             .limit(30)
             .execute()
