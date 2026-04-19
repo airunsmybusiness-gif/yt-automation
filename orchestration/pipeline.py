@@ -83,7 +83,7 @@ class Pipeline:
             self.sb.table("yt_viral_videos")
             .select("*")
             .eq("status", "queued")
-            .eq("suitable", True)
+            .eq("suitable", "true")
             .limit(1)
             .execute()
         )
