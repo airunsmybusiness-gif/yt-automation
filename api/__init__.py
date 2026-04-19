@@ -44,7 +44,7 @@ async def dashboard():
 
     batch_jobs = (
         sb.table("yt_batch_jobs")
-        .select("name,status,type,created_at")
+        .select("batch_job_name,status,media_type,created_at")
         .neq("status", "completed")
         .order("created_at", desc=True)
         .limit(20)
