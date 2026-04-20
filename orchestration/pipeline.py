@@ -174,6 +174,22 @@ class Pipeline:
         )
         if existing.data and len(existing.data) >= 150:
             log.info(f"[{vid_id[:8]}] Scripts cached ({len(existing.data)} sentences)")
+            image_jobs_check = (
+                self.sb.table("yt_image_generation_jobs")
+                .select("sentence_number")
+                .eq("viral_video_id", vid_id)
+                .limit(1)
+                .execute()
+            )
+            if not image_jobs_check.data:
+                log.info(f"[{vid_id[:8]}] Rebuilding image jobs from cached script")
+                image_prompt_template = (
+                    self.sb.table("yt_agent_prompts")
+                    .select("prompt_content")
+                    .eq("agent_name", "image_generator")
+                    .execute()
+                ).data[0]["prompt_content"]
+                self._save_image_jobs(vid_id, existing.data, image_prompt_template)
             return existing.data
 
         log.info(f"[{vid_id[:8]}] Running script writer agent")
