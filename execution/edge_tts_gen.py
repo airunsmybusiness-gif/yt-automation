@@ -26,10 +26,26 @@ async def _generate_async(text: str, output_path: Path) -> None:
     await communicate.save(str(output_path))
 
 
+def _run_in_thread(coro):
+    import threading
+    result = {}
+    def runner():
+        try:
+            result["value"] = asyncio.new_event_loop().run_until_complete(coro)
+        except Exception as exc:
+            result["error"] = exc
+    t = threading.Thread(target=runner)
+    t.start()
+    t.join()
+    if "error" in result:
+        raise result["error"]
+    return result.get("value")
+
+
 def generate_audio(text: str, output_path: Path) -> None:
     output_path.parent.mkdir(parents=True, exist_ok=True)
     try:
-        asyncio.run(_generate_async(text, output_path))
+        _run_in_thread(_generate_async(text, output_path))
     except Exception as exc:
         raise EdgeTTSError(f"Edge TTS failed: {exc}") from exc
     if not output_path.exists() or output_path.stat().st_size < 1000:
