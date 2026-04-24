@@ -22,8 +22,8 @@ TTS_URL: str = (
     f"{CLOUDFLARE_ACCOUNT_ID}/ai/run/{TTS_MODEL}"
 )
 SPEAKER: str = "luna"
-MAX_RETRIES: int = 3
-RETRY_DELAY_SEC: int = 5
+MAX_RETRIES: int = 5
+RETRY_DELAY_SEC: int = 15
 MAX_CHARS_PER_REQUEST: int = 1800
 
 
@@ -73,6 +73,7 @@ def generate_audio(text: str, output_path: Path) -> None:
 
 
 def generate_chunk(sentences: list[dict], output_path: Path) -> dict:
+    time.sleep(2)  # Rate limit pacing
     combined_text = " ".join(s["sentence_text"] for s in sentences)
     generate_audio(combined_text, output_path)
     return {
