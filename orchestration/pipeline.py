@@ -124,13 +124,13 @@ class Pipeline:
     def _ensure_transcript(self, vid_id: str, yt_id: str) -> str:
         existing = (
             self.sb.table("yt_video_transcripts")
-            .select("transcript_text")
+            .select("content")
             .eq("video_record_id", vid_id)
             .execute()
         )
         if existing.data:
             log.info(f"[{vid_id[:8]}] Transcript cached")
-            return existing.data[0]["transcript_text"]
+            return existing.data[0]["content"]
         raise RuntimeError(f"No transcript for {yt_id}; populate yt_video_transcripts first")
 
     def _fetch_comments(self, vid_id: str) -> list[str]:
