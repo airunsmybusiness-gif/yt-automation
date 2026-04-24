@@ -184,7 +184,7 @@ class Pipeline:
         rows_scripts = []
         rows_images = []
         for i, s in enumerate(sentences, start=1):
-            text = s["text"] if isinstance(s, dict) else str(s)
+            text = (s.get("sentence_text") or s.get("text") or str(s)) if isinstance(s, dict) else str(s)
             scene = (s.get("scene") if isinstance(s, dict) else None) or text
             rows_scripts.append({
                 "viral_video_id": vid_id,
