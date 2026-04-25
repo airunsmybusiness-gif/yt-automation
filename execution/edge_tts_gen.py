@@ -74,7 +74,7 @@ def generate_audio(text: str, output_path: Path) -> None:
 
 def generate_chunk(sentences: list[dict], output_path: Path) -> dict:
     time.sleep(2)  # Rate limit pacing
-    combined_text = " ".join(s["sentence_text"] for s in sentences)
+    combined_text = " ... ".join(s["sentence_text"] for s in sentences)
     generate_audio(combined_text, output_path)
     return {
         "text": combined_text,

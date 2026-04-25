@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 CLAUDE_MODEL: str = os.environ.get("CLAUDE_MODEL", "claude-opus-4-7")
 
 CHUNK_SIZE: int = 5
-MAX_SENTENCES: int = 130
+MAX_SENTENCES: int = 150
 
 
 class Pipeline:
