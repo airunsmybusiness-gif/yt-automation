@@ -43,7 +43,29 @@ class Pipeline:
         self.sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
         self.ai = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
+    def _check_cloudflare_quota(self) -> bool:
+        import requests, os
+        token = os.environ.get("CLOUDFLARE_API_TOKEN", "")
+        account = os.environ.get("CLOUDFLARE_ACCOUNT_ID", "")
+        if not token or not account:
+            return True
+        try:
+            r = requests.post(
+                f"https://api.cloudflare.com/client/v4/accounts/{account}/ai/run/@cf/black-forest-labs/flux-1-schnell",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json={"prompt": "x"},
+                timeout=10,
+            )
+            if r.status_code == 429:
+                log.warning("Cloudflare quota exceeded, skipping pipeline run")
+                return False
+            return True
+        except Exception:
+            return True
+
     def process_next(self) -> None:
+        if not self._check_cloudflare_quota():
+            return
         row = (
             self.sb.table("yt_viral_videos")
             .select("*")
