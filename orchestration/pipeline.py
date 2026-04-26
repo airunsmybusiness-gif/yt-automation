@@ -192,18 +192,25 @@ class Pipeline:
             .replace("{{comments}}", "\n".join(comments[:20]))
         )
         log.info(f"[{vid_id[:8]}] Calling Claude for script")
-        resp = self.ai.messages.create(
-            model=CLAUDE_MODEL,
-            max_tokens=16000,
-            messages=[{"role": "user", "content": prompt_filled}],
-        )
-        raw = resp.content[0].text
-        script_json = self._extract_json(raw)
-        sentences = script_json.get("sentences") or script_json.get("script") or []
-        if not sentences:
-            raise RuntimeError(f"Script agent returned no sentences: {raw[:400]}")
-        sentences = sentences[:MAX_SENTENCES]
-        log.info(f"[{vid_id[:8]}] Script: {len(sentences)} sentences (cap {MAX_SENTENCES})")
+        sentences = []
+        for attempt in range(3):
+            resp = self.ai.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=16000,
+                messages=[{"role": "user", "content": prompt_filled}],
+            )
+            raw = resp.content[0].text
+            script_json = self._extract_json(raw)
+            sentences = script_json.get("sentences") or script_json.get("script") or []
+            if not sentences:
+                raise RuntimeError(f"Script agent returned no sentences: {raw[:400]}")
+            sentences = sentences[:MAX_SENTENCES]
+            log.info(f"[{vid_id[:8]}] Script attempt {attempt+1}: {len(sentences)} sentences")
+            if len(sentences) >= 145:
+                break
+            log.warning(f"[{vid_id[:8]}] Only {len(sentences)} sentences, retrying with stronger prompt")
+            prompt_filled = prompt_filled + f"\n\nCRITICAL: Your last attempt only produced {len(sentences)} sentences. You MUST write at least 150. Continue expanding every section with more examples, stories, and psychological insights until you reach 150+ sentences."
+        log.info(f"[{vid_id[:8]}] Script final: {len(sentences)} sentences (cap {MAX_SENTENCES})")
 
         image_prompt_template = self._fetch_agent_prompt("image_generator")
         rows_scripts = []
