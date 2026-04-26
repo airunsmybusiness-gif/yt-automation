@@ -118,18 +118,21 @@ class Pipeline:
                 privacy_status="private",
                 category_id="27",
             )
-            self.sb.table("yt_results").insert({
-                "video_id": upload_result["video_id"],
-                "gcs_video_url": upload_result["url"],
-                "thumbnail_link": (
-                    upload_result["url"] if upload_result["thumbnail_uploaded"] else None
-                ),
-            }).execute()
+            try:
+                self.sb.table("yt_results").insert({
+                    "video_id": upload_result["video_id"],
+                    "gcs_video_url": upload_result["url"],
+                    "thumbnail_link": (
+                        upload_result["url"] if upload_result["thumbnail_uploaded"] else None
+                    ),
+                }).execute()
+            except Exception as db_exc:
+                log.warning(f"[{vid_id[:8]}] yt_results insert skipped: {db_exc}")
             self._mark_status(vid_id, "done", notes=f"Uploaded: {upload_result['url']}")
             log.info(f"[{vid_id[:8]}] DONE -> {upload_result['url']}")
         except Exception as exc:
             log.exception(f"[{vid_id[:8]}] FAILED: {exc}")
-            self._mark_status(vid_id, "queued", notes=f"Error: {exc}")
+            self._mark_status(vid_id, "failed", notes=f"Error: {exc}")
         finally:
             try:
                 shutil.rmtree(work_dir)
@@ -191,7 +194,7 @@ class Pipeline:
         log.info(f"[{vid_id[:8]}] Calling Claude for script")
         resp = self.ai.messages.create(
             model=CLAUDE_MODEL,
-            max_tokens=8000,
+            max_tokens=16000,
             messages=[{"role": "user", "content": prompt_filled}],
         )
         raw = resp.content[0].text
