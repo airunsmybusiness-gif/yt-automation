@@ -15,7 +15,7 @@ import requests
 log = logging.getLogger(__name__)
 
 CLOUDFLARE_ACCOUNT_ID: str = os.environ["CLOUDFLARE_ACCOUNT_ID"]
-CLOUDFLARE_API_TOKEN: str = os.environ["CLOUDFLARE_API_TOKEN"
+CLOUDFLARE_API_TOKEN: str = os.environ["CLOUDFLARE_API_TOKEN"]
 MODEL: str = "@cf/stabilityai/stable-diffusion-xl-base-1.0"
 API_URL: str = (
     f"https://api.cloudflare.com/client/v4/accounts/"
