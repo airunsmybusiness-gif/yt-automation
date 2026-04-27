@@ -41,13 +41,14 @@ def _call_cloudflare(prompt: str) -> bytes:
         timeout=90,
     )
     resp.raise_for_status()
+    content_type = resp.headers.get("content-type", "")
+    if "image" in content_type:
+        return resp.content
     data = resp.json()
     img_b64 = data.get("result", {}).get("image")
     if not img_b64:
         raise CloudflareImageError(f"No image in response: {data}")
     return base64.b64decode(img_b64)
-
-
 def _generate_with_retry(prompt: str, key: int) -> bytes:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
