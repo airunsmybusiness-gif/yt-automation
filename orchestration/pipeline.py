@@ -34,7 +34,7 @@ SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 CLAUDE_MODEL: str = os.environ.get("CLAUDE_MODEL", "claude-opus-4-7")
 
-CHUNK_SIZE: int = 25
+CHUNK_SIZE: int = 8
 MAX_SENTENCES: int = 180
 
 
