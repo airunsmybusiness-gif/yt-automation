@@ -217,19 +217,7 @@ class Pipeline:
         rows_images = []
         for i, s in enumerate(sentences, start=1):
             text = (s.get("sentence_text") or s.get("text") or str(s)) if isinstance(s, dict) else str(s)
-            directive = s.get("image_directive", {}) if isinstance(s, dict) else {}
-            subject = directive.get("subject", "a person")
-            action = directive.get("action", "standing")
-            emotion = directive.get("emotion", "thoughtful")
-            symbolic_object = directive.get("symbolic_object", "a light bulb")
-            composition = directive.get("composition", "single centered subject, soft pastel background, breathing room around subject")
-            image_prompt = (image_prompt_template
-                .replace("{{subject}}", subject)
-                .replace("{{action}}", action)
-                .replace("{{emotion}}", emotion)
-                .replace("{{symbolic_object}}", symbolic_object)
-                .replace("{{composition}}", composition)
-                .replace("{{scene_description}}", text))
+            scene = (s.get("scene") if isinstance(s, dict) else None) or text
             rows_scripts.append({
                 "viral_video_id": vid_id,
                 "sentence_number": i,
@@ -238,7 +226,7 @@ class Pipeline:
             rows_images.append({
                 "viral_video_id": vid_id,
                 "sentence_number": i,
-                "formatted_prompt": image_prompt,
+                "formatted_prompt": image_prompt_template.replace("{{scene_description}}", scene),
             })
         self.sb.table("yt_scripts").insert(rows_scripts).execute()
         self.sb.table("yt_image_generation_jobs").insert(rows_images).execute()
