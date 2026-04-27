@@ -21,7 +21,7 @@ SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 MODEL: str = "google/gemini-2.5-flash-image-preview"
 API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
 REFERENCE_BUCKET: str = "reference-image"
-REFERENCE_FILE: str = "stickfigure.jpeg"
+REFERENCE_FILE: str = "stickfigure.jpeg.png"
 
 MAX_RETRIES: int = 3
 RETRY_DELAY_SEC: int = 5
@@ -71,7 +71,7 @@ def _call_openrouter(prompt: str) -> bytes:
                         {
                             "type": "image_url",
                             "image_url": {
-                                "url": f"data:image/jpeg;base64,{ref_b64}"
+                                "url": f"data:image/png;base64,{ref_b64}"
                             },
                         },
                     ],
