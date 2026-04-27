@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 CLAUDE_MODEL: str = os.environ.get("CLAUDE_MODEL", "claude-opus-4-7")
 
 CHUNK_SIZE: int = 25
-MAX_SENTENCES: int = 150
+MAX_SENTENCES: int = 180
 
 
 class Pipeline:
@@ -206,7 +206,7 @@ class Pipeline:
                 raise RuntimeError(f"Script agent returned no sentences: {raw[:400]}")
             sentences = sentences[:MAX_SENTENCES]
             log.info(f"[{vid_id[:8]}] Script attempt {attempt+1}: {len(sentences)} sentences")
-            if len(sentences) >= 145:
+            if len(sentences) >= 165:
                 break
             log.warning(f"[{vid_id[:8]}] Only {len(sentences)} sentences, retrying with stronger prompt")
             prompt_filled = prompt_filled + f"\n\nCRITICAL: Your last attempt only produced {len(sentences)} sentences. You MUST write at least 150. Continue expanding every section with more examples, stories, and psychological insights until you reach 150+ sentences."
