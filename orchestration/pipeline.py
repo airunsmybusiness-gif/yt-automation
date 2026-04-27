@@ -345,12 +345,19 @@ class Pipeline:
                 + "\n\nReturn ONLY valid JSON with keys: title, description, tags (array of 15+ strings)."
             )
             resp = self.ai.messages.create(
-                model=CLAUDE_MODEL,
+                model="claude-sonnet-4-6",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
             )
             raw = resp.content[0].text
-            data = self._extract_json(raw)
+            # Try to repair common JSON issues
+            try:
+                data = self._extract_json(raw)
+            except Exception:
+                # Strip trailing commas, fix unescaped quotes
+                import re
+                cleaned = re.sub(r',\s*([}\]])', r'\1', raw)
+                data = self._extract_json(cleaned)
             return {
                 "title": (data.get("title") or title)[:100],
                 "description": data.get("description") or self._fallback_description(title),
