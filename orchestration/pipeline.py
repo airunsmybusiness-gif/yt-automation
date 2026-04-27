@@ -25,7 +25,7 @@ from typing import Any
 import anthropic
 from supabase import Client, create_client
 
-from execution import cloudflare_images, edge_tts_gen, video_render, youtube_upload
+from execution import openrouter_images, edge_tts_gen, video_render, youtube_upload
 
 log = logging.getLogger(__name__)
 
@@ -215,17 +215,23 @@ class Pipeline:
         image_prompt_template = self._fetch_agent_prompt("image_generator")
         rows_scripts = []
         rows_images = []
+        IMAGE_GROUP_SIZE = 3
+        sentence_texts = []
         for i, s in enumerate(sentences, start=1):
             text = (s.get("sentence_text") or s.get("text") or str(s)) if isinstance(s, dict) else str(s)
-            scene = (s.get("scene") if isinstance(s, dict) else None) or text
+            sentence_texts.append(text)
             rows_scripts.append({
                 "viral_video_id": vid_id,
                 "sentence_number": i,
                 "sentence_text": text,
             })
+        # Group 3 sentences per image for smoother pacing
+        for group_start in range(0, len(sentence_texts), IMAGE_GROUP_SIZE):
+            group = sentence_texts[group_start:group_start + IMAGE_GROUP_SIZE]
+            scene = " ".join(group)
             rows_images.append({
                 "viral_video_id": vid_id,
-                "sentence_number": i,
+                "sentence_number": group_start + 1,
                 "formatted_prompt": image_prompt_template.replace("{{scene_description}}", scene),
             })
         self.sb.table("yt_scripts").insert(rows_scripts).execute()
@@ -293,8 +299,8 @@ class Pipeline:
             if k not in seen:
                 seen.add(k)
                 unique.append(row)
-        log.info(f"[{vid_id[:8]}] Cloudflare Flux: {len(unique)} images")
-        result = cloudflare_images.generate_batch(unique, images_dir)
+        log.info(f"[{vid_id[:8]}] OpenRouter Gemini: {len(unique)} images")
+        result = openrouter_images.generate_batch(unique, images_dir)
         log.info(
             f"[{vid_id[:8]}] Images done: success={result['success_count']} "
             f"skipped={result['skipped_count']} failed={result['failure_count']}"
