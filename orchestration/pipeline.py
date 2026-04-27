@@ -105,15 +105,12 @@ class Pipeline:
                 if render_result.get("thumbnail_path")
                 else None
             )
-            description = self._build_description(title)
+            metadata = self._generate_metadata(title, transcript, sentences)
             upload_result = youtube_upload.upload_video(
                 video_path=final_video,
-                title=title[:100],
-                description=description,
-                tags=[
-                    "psychology", "psychologyfacts", "mindseam",
-                    "humanbehavior", "selfimprovement", "mentalhealth",
-                ],
+                title=metadata["title"],
+                description=metadata["description"],
+                tags=metadata["tags"],
                 thumbnail_path=thumb_path,
                 privacy_status="private",
                 category_id="27",
@@ -335,9 +332,45 @@ class Pipeline:
                 return json.loads(text[start:end + 1])
             raise
 
-    def _build_description(self, title: str) -> str:
+    def _generate_metadata(self, title: str, transcript: str, sentences: list[dict]) -> dict:
+        """Call agent2_strategist for SEO-optimized title, description, tags."""
+        try:
+            prompt_template = self._fetch_agent_prompt("agent2_strategist")
+            script_text = " ".join((s.get("sentence_text") or "")[:200] for s in sentences[:30])
+            prompt = (
+                prompt_template
+                .replace("{{title}}", title)
+                .replace("{{transcript}}", transcript[:3000])
+                .replace("{{script}}", script_text[:3000])
+                + "\n\nReturn ONLY valid JSON with keys: title, description, tags (array of 15+ strings)."
+            )
+            resp = self.ai.messages.create(
+                model=CLAUDE_MODEL,
+                max_tokens=2000,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            raw = resp.content[0].text
+            data = self._extract_json(raw)
+            return {
+                "title": (data.get("title") or title)[:100],
+                "description": data.get("description") or self._fallback_description(title),
+                "tags": data.get("tags") or ["psychology", "mindseam", "humanbehavior", "psychologyfacts", "mentalhealth", "selfimprovement"],
+            }
+        except Exception as exc:
+            log.warning(f"Strategist metadata failed, using fallback: {exc}")
+            return {
+                "title": title[:100],
+                "description": self._fallback_description(title),
+                "tags": ["psychology", "mindseam", "humanbehavior", "psychologyfacts", "mentalhealth", "selfimprovement", "neuroscience", "mentalhealthawareness", "selfawareness", "emotionalintelligence", "personalgrowth", "mindset", "psychologytips", "behaviorscience", "humanmind"],
+            }
+
+    def _fallback_description(self, title: str) -> str:
         return (
             f"{title}\n\n"
             "Explore the psychology behind everything you feel on MindSeam.\n\n"
-            "#psychology #psychologyfacts #mindseam #humanbehavior #mentalhealth\n"
+            "Subscribe for more psychology insights every week.\n\n"
+            "#psychology #psychologyfacts #mindseam #humanbehavior #mentalhealth #selfimprovement\n"
         )
+
+    def _build_description(self, title: str) -> str:
+        return self._fallback_description(title)
