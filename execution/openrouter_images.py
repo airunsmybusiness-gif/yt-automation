@@ -18,7 +18,7 @@ OPENROUTER_API_KEY: str = os.environ["OPENROUTER_API_KEY"]
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
 SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 
-MODEL: str = "google/gemini-2.5-flash-image-preview"
+MODEL: str = "google/gemini-2.5-flash-image"
 API_URL: str = "https://openrouter.ai/api/v1/chat/completions"
 REFERENCE_BUCKET: str = "reference-image"
 REFERENCE_FILE: str = "stickfigure.jpeg.png"
