@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.1-8b-instant"  # Higher TPM than 70B on free tier
+MODEL = "llama-3.3-70b-versatile"  # 70B with truncated inputs
 
 
 def generate_text(
@@ -32,12 +32,19 @@ def generate_text(
         messages.append({"role": "system", "content": sys_capped})
     messages.append({"role": "user", "content": user_prompt})
 
+    # Enable JSON mode if prompt asks for JSON output (prevents malformed output)
+    wants_json = any(
+        kw in (system_prompt + user_prompt).lower()
+        for kw in ["json", "json object", "valid json"]
+    )
     payload = {
         "model": MODEL,
         "messages": messages,
         "max_tokens": max_tokens,
         "temperature": temperature,
     }
+    if wants_json:
+        payload["response_format"] = {"type": "json_object"}
     headers = {
         "Authorization": f"Bearer {GROQ_API_KEY}",
         "Content-Type": "application/json",
