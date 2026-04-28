@@ -25,7 +25,7 @@ from typing import Any
 import anthropic
 from supabase import Client, create_client
 
-from execution import openrouter_images, edge_tts_gen, video_render, youtube_upload
+from execution import cloudflare_images, edge_tts_gen, video_render, youtube_upload
 
 log = logging.getLogger(__name__)
 
@@ -297,7 +297,7 @@ class Pipeline:
                 seen.add(k)
                 unique.append(row)
         log.info(f"[{vid_id[:8]}] OpenRouter Gemini: {len(unique)} images")
-        result = openrouter_images.generate_batch(unique, images_dir)
+        result = cloudflare_images.generate_batch(unique, images_dir)
         log.info(
             f"[{vid_id[:8]}] Images done: success={result['success_count']} "
             f"skipped={result['skipped_count']} failed={result['failure_count']}"
