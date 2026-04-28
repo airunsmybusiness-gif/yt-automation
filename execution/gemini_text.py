@@ -1,53 +1,48 @@
-"""Gemini 2.5 Flash text generator — drop-in replacement for Anthropic calls."""
+"""Groq Llama 3.3 70B text generator — Anthropic SDK compatibility shim."""
 import os
 import logging
-from typing import Optional
-from google import genai
-from google.genai import types
+import requests
 
 logger = logging.getLogger(__name__)
 
-_client: Optional[genai.Client] = None
-
-
-def _get_client() -> genai.Client:
-    global _client
-    if _client is None:
-        # Force AI Studio endpoint, not Vertex AI
-        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
-        api_key = os.environ["GEMINI_API_KEY"]
-        _client = genai.Client(api_key=api_key, vertexai=False)
-    return _client
+GROQ_API_KEY = os.environ["GROQ_API_KEY"]
+GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
+MODEL = "llama-3.3-70b-versatile"
 
 
 def generate_text(
     system_prompt: str,
     user_prompt: str,
-    model: str = "gemini-2.5-flash",
     max_tokens: int = 8192,
     temperature: float = 1.0,
 ) -> str:
-    """Generate text via Gemini. Mirrors Anthropic messages.create interface."""
-    client = _get_client()
-    config_kwargs = {
-        "max_output_tokens": max_tokens,
+    """Generate text via Groq."""
+    messages = []
+    if system_prompt and system_prompt.strip():
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": user_prompt})
+
+    payload = {
+        "model": MODEL,
+        "messages": messages,
+        "max_tokens": max_tokens,
         "temperature": temperature,
     }
-    if system_prompt and system_prompt.strip():
-        config_kwargs["system_instruction"] = system_prompt
-    config = types.GenerateContentConfig(**config_kwargs)
-    resp = client.models.generate_content(
-        model=model,
-        contents=user_prompt,
-        config=config,
-    )
-    if not resp.text:
-        raise RuntimeError(f"Gemini returned empty response: {resp}")
-    return resp.text
+    headers = {
+        "Authorization": f"Bearer {GROQ_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    r = requests.post(GROQ_URL, json=payload, headers=headers, timeout=120)
+    r.raise_for_status()
+    data = r.json()
+    text = data["choices"][0]["message"]["content"]
+    if not text:
+        raise RuntimeError(f"Groq returned empty: {data}")
+    return text
 
 
 class GeminiMessageShim:
-    """Anthropic SDK compatibility shim. Lets pipeline.py keep its existing call shape."""
+    """Anthropic SDK compatibility shim — name kept for backward compat."""
     def __init__(self):
         pass
 
@@ -78,6 +73,7 @@ class GeminiMessageShim:
                     user_text += f"[Previous assistant turn]: {chunk}\n"
         if not user_text.strip():
             raise RuntimeError(f"Empty user text. messages={messages}")
+
         text = generate_text(
             system_prompt=system or "",
             user_prompt=user_text,
