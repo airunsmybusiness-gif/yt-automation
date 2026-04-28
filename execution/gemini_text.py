@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 GROQ_API_KEY = os.environ["GROQ_API_KEY"]
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.3-70b-versatile"
+MODEL = "llama-3.1-8b-instant"  # Higher TPM than 70B on free tier
 
 
 def generate_text(
@@ -16,10 +16,20 @@ def generate_text(
     max_tokens: int = 8192,
     temperature: float = 1.0,
 ) -> str:
-    """Generate text via Groq."""
+    """Generate text via Groq. Truncates user_prompt to fit Groq free tier TPM."""
+    # Groq free tier TPM cap ~30k. Reserve room for system + output. Cap user input at 18k chars (~4.5k tokens).
+    MAX_USER_CHARS = 18000
+    if len(user_prompt) > MAX_USER_CHARS:
+        logger.warning(
+            f"Truncating user_prompt {len(user_prompt)} -> {MAX_USER_CHARS} chars"
+        )
+        user_prompt = user_prompt[:MAX_USER_CHARS] + "\n\n[truncated for token limit]"
+    if max_tokens > 4096:
+        max_tokens = 4096  # Groq free tier output cap
     messages = []
     if system_prompt and system_prompt.strip():
-        messages.append({"role": "system", "content": system_prompt})
+        sys_capped = system_prompt[:6000]
+        messages.append({"role": "system", "content": sys_capped})
     messages.append({"role": "user", "content": user_prompt})
 
     payload = {
