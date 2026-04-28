@@ -13,8 +13,10 @@ _client: Optional[genai.Client] = None
 def _get_client() -> genai.Client:
     global _client
     if _client is None:
+        # Force AI Studio endpoint, not Vertex AI
+        os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "false"
         api_key = os.environ["GEMINI_API_KEY"]
-        _client = genai.Client(api_key=api_key)
+        _client = genai.Client(api_key=api_key, vertexai=False)
     return _client
 
 
