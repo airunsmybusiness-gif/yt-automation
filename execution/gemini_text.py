@@ -27,11 +27,13 @@ def generate_text(
 ) -> str:
     """Generate text via Gemini. Mirrors Anthropic messages.create interface."""
     client = _get_client()
-    config = types.GenerateContentConfig(
-        system_instruction=system_prompt,
-        max_output_tokens=max_tokens,
-        temperature=temperature,
-    )
+    config_kwargs = {
+        "max_output_tokens": max_tokens,
+        "temperature": temperature,
+    }
+    if system_prompt and system_prompt.strip():
+        config_kwargs["system_instruction"] = system_prompt
+    config = types.GenerateContentConfig(**config_kwargs)
     resp = client.models.generate_content(
         model=model,
         contents=user_prompt,
