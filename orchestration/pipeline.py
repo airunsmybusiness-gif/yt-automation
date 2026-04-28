@@ -25,7 +25,7 @@ from typing import Any
 import anthropic
 from supabase import Client, create_client
 
-from execution import cloudflare_images, edge_tts_gen, video_render, youtube_upload
+from execution import openrouter_images, edge_tts_gen, video_render, youtube_upload
 
 log = logging.getLogger(__name__)
 
@@ -296,8 +296,14 @@ class Pipeline:
             if k not in seen:
                 seen.add(k)
                 unique.append(row)
+        # Cap images at 30 to control cost (~$1.20/video at Nano Banana 1 pricing)
+        MAX_IMAGES = 30
+        if len(unique) > MAX_IMAGES:
+            step = len(unique) / MAX_IMAGES
+            unique = [unique[int(i * step)] for i in range(MAX_IMAGES)]
+            log.info(f"[{vid_id[:8]}] Capped images: {len(unique)} (evenly sampled)")
         log.info(f"[{vid_id[:8]}] OpenRouter Gemini: {len(unique)} images")
-        result = cloudflare_images.generate_batch(unique, images_dir)
+        result = openrouter_images.generate_batch(unique, images_dir)
         log.info(
             f"[{vid_id[:8]}] Images done: success={result['success_count']} "
             f"skipped={result['skipped_count']} failed={result['failure_count']}"
