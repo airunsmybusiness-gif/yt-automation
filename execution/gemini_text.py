@@ -55,14 +55,25 @@ class GeminiMessageShim:
         user_text = ""
         if messages:
             for m in messages:
-                if m.get("role") == "user":
-                    content = m.get("content", "")
-                    if isinstance(content, list):
-                        user_text += "\n".join(
-                            b.get("text", "") for b in content if b.get("type") == "text"
-                        )
-                    else:
-                        user_text += content
+                role = m.get("role", "")
+                content = m.get("content", "")
+                if isinstance(content, list):
+                    parts = []
+                    for b in content:
+                        if isinstance(b, dict):
+                            if b.get("type") == "text":
+                                parts.append(b.get("text", ""))
+                        elif isinstance(b, str):
+                            parts.append(b)
+                    chunk = "\n".join(parts)
+                else:
+                    chunk = str(content) if content else ""
+                if role == "user":
+                    user_text += chunk + "\n"
+                elif role == "assistant":
+                    user_text += f"[Previous assistant turn]: {chunk}\n"
+        if not user_text.strip():
+            raise RuntimeError(f"Empty user text. messages={messages}")
         text = generate_text(
             system_prompt=system or "",
             user_prompt=user_text,
