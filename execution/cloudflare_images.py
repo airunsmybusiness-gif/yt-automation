@@ -31,24 +31,36 @@ class CloudflareImageError(RuntimeError):
 
 
 STYLE_PREFIX: str = (
-    "Hand-drawn stick figure illustration in dark navy blue ink on cream paper. "
-    "Naive folk-art style, simple line drawing, single central figure or small scene, "
-    "minimal shading, expressive eyes, emotionally resonant. "
-    "ABSOLUTELY NO TEXT. NO LETTERS. NO WORDS. NO SIGNS. NO WRITING. NO SYMBOLS. NO NUMBERS. "
-    "Empty whitespace background. Single clear scene only. NOT a collage. NOT multiple panels. "
-    "Scene depicts: "
+    "A single hand-drawn stick figure on a vast empty cream-colored paper background. "
+    "ONE simple stick figure character, alone, centered, surrounded by huge empty whitespace. "
+    "Drawn in dark navy blue ballpoint pen on plain paper. Minimalist line art. "
+    "The character has a round head with two simple dot eyes and is performing this single action: "
 )
 NEGATIVE_SUFFIX: str = (
-    " --no text, letters, words, writing, signs, captions, labels, watermarks, "
-    "logos, gibberish, fake text, scribbles, multiple frames, collage, grid layout, "
-    "tiled images, photographs, realistic photos, 3D render"
+    ". The image must contain ONLY ONE stick figure with empty space around it. "
+    "Use the entire canvas for whitespace. The figure should occupy only the center 30% of the image. "
+    "Strict constraints: no text, no letters, no words, no writing, no numbers, no signs, no symbols, "
+    "no labels, no captions, no watermarks. No other characters or people. No background scenery, "
+    "no patterns, no repetitions, no tiles, no grid, no collage, no multiple panels. "
+    "No realism, no 3D, no photographs. Just one stick figure on cream paper."
+)
+
+import re
+_STRIP_PLURALS = re.compile(
+    r"\b(people|characters|figures|persons|crowds|groups|scenes|panels|"
+    r"illustrations|drawings|sketches)\b",
+    re.IGNORECASE,
 )
 
 
 def _wrap_prompt(raw: str) -> str:
-    """Strip user prompt to scene description and wrap in style rails."""
-    # Truncate to leave room for style wrapper
-    scene = raw.strip()[:1400]
+    """Reduce user prompt to a single action, wrap in tight single-subject rails."""
+    # Take first sentence only — Flux ignores everything past the first idea anyway
+    scene = raw.strip().split(".")[0].split("\n")[0]
+    # Strip plural nouns that trigger collage behavior
+    scene = _STRIP_PLURALS.sub("person", scene)
+    # Hard cap to keep prompt focused
+    scene = scene[:200]
     return STYLE_PREFIX + scene + NEGATIVE_SUFFIX
 
 
