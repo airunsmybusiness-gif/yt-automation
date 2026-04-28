@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
-import anthropic
+from execution.gemini_text import GeminiMessageShim
 from supabase import Client, create_client
 
 from execution import imagen_images, edge_tts_gen, video_render, youtube_upload
@@ -41,7 +41,7 @@ MAX_SENTENCES: int = 180
 class Pipeline:
     def __init__(self) -> None:
         self.sb: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-        self.ai = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        self.ai = GeminiMessageShim()
 
     def _check_cloudflare_quota(self) -> bool:
         import requests, os
@@ -351,7 +351,7 @@ class Pipeline:
         prompt = template.replace("{{sentence}}", sentence_blob[:500])
         try:
             resp = self.ai.messages.create(
-                model="claude-sonnet-4-6",
+                model="gemini-2.5-flash",
                 max_tokens=120,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -378,7 +378,7 @@ class Pipeline:
                 + "\n\nReturn ONLY valid JSON with keys: title, description, tags (array of 15+ strings)."
             )
             resp = self.ai.messages.create(
-                model="claude-sonnet-4-6",
+                model="gemini-2.5-flash",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
             )
