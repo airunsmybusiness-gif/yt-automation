@@ -227,11 +227,13 @@ class Pipeline:
         # Group 3 sentences per image for smoother pacing
         for group_start in range(0, len(sentence_texts), IMAGE_GROUP_SIZE):
             group = sentence_texts[group_start:group_start + IMAGE_GROUP_SIZE]
-            scene = " ".join(group)
+            sentence_blob = " ".join(group)
+            # Transform script sentences into ONE concrete visual scene via Claude
+            scene = self._scene_from_sentences(sentence_blob, image_prompt_template)
             rows_images.append({
                 "viral_video_id": vid_id,
                 "sentence_number": group_start + 1,
-                "formatted_prompt": image_prompt_template.replace("{{scene_description}}", scene),
+                "formatted_prompt": scene,
             })
         self.sb.table("yt_scripts").insert(rows_scripts).execute()
         self.sb.table("yt_image_generation_jobs").insert(rows_images).execute()
@@ -250,14 +252,18 @@ class Pipeline:
             return
         log.info(f"[{vid_id[:8]}] Rebuilding image jobs from cached script")
         template = self._fetch_agent_prompt("image_generator")
-        rows = [
-            {
+        # Group sentences (3 per image) and use Claude to transform each group
+        IMAGE_GROUP_SIZE = 3
+        rows = []
+        for group_start in range(0, len(sentences), IMAGE_GROUP_SIZE):
+            group = sentences[group_start:group_start + IMAGE_GROUP_SIZE]
+            sentence_blob = " ".join(s["sentence_text"] for s in group)
+            scene = self._scene_from_sentences(sentence_blob, template)
+            rows.append({
                 "viral_video_id": vid_id,
-                "sentence_number": s["sentence_number"],
-                "formatted_prompt": template.replace("{{scene_description}}", s["sentence_text"]),
-            }
-            for s in sentences
-        ]
+                "sentence_number": group[0]["sentence_number"],
+                "formatted_prompt": scene,
+            })
         self.sb.table("yt_image_generation_jobs").insert(rows).execute()
 
     def _generate_audio(
@@ -339,6 +345,25 @@ class Pipeline:
             if start >= 0 and end > start:
                 return json.loads(text[start:end + 1])
             raise
+
+    def _scene_from_sentences(self, sentence_blob: str, template: str) -> str:
+        """Use Claude to turn 1-3 script sentences into a literal stick-figure scene description."""
+        prompt = template.replace("{{sentence}}", sentence_blob[:500])
+        try:
+            resp = self.ai.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=120,
+                messages=[{"role": "user", "content": prompt}],
+            )
+            scene = resp.content[0].text.strip()
+            # Strip any quotes/preamble Claude might add
+            scene = scene.strip('"').strip("'").strip()
+            if scene.lower().startswith(("here", "scene:", "output:")):
+                scene = scene.split(":", 1)[-1].strip()
+            return scene[:500] if scene else f"A stick figure standing alone. Empty cream paper background."
+        except Exception as exc:
+            log.warning(f"Scene transform failed, using fallback: {exc}")
+            return f"A stick figure standing alone, looking thoughtful. Empty cream paper background."
 
     def _generate_metadata(self, title: str, transcript: str, sentences: list[dict]) -> dict:
         """Call agent2_strategist for SEO-optimized title, description, tags."""
