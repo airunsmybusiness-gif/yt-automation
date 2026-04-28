@@ -94,18 +94,20 @@ class Pipeline:
             audio_chunks = self._generate_audio(vid_id, sentences, work_dir / "audio")
             self._generate_images(vid_id, sentences, work_dir / "images")
             final_video = work_dir / f"{yt_id}.mp4"
+            # Generate metadata FIRST so thumbnail uses optimized title
+            metadata = self._generate_metadata(title, transcript, sentences)
             render_result = video_render.render_video(
                 audio_chunks=audio_chunks,
                 images_dir=work_dir / "images",
                 work_dir=work_dir / "render",
                 output_path=final_video,
+                title=metadata["title"],
             )
             thumb_path = (
                 Path(render_result["thumbnail_path"])
                 if render_result.get("thumbnail_path")
                 else None
             )
-            metadata = self._generate_metadata(title, transcript, sentences)
             upload_result = youtube_upload.upload_video(
                 video_path=final_video,
                 title=metadata["title"],
