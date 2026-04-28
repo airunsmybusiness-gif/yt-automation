@@ -10,7 +10,7 @@ import os
 import shutil
 import subprocess
 from pathlib import Path
-from execution import openrouter_images
+from execution import cloudflare_images
 
 log = logging.getLogger(__name__)
 
@@ -102,7 +102,7 @@ def _generate_thumbnail(title: str, first_image: Path, out_path: Path) -> bool:
     )
     job = [{"sentence_number": 9999, "formatted_prompt": prompt}]
     try:
-        result = openrouter_images.generate_batch(job, out_path.parent)
+        result = cloudflare_images.generate_batch(job, out_path.parent)
         # Generator names file 9999.jpg in out_path.parent
         generated = out_path.parent / "9999.jpg"
         if result["success_count"] >= 1 and generated.exists():
@@ -110,7 +110,7 @@ def _generate_thumbnail(title: str, first_image: Path, out_path: Path) -> bool:
             return True
     except Exception as exc:
         import logging
-        logging.getLogger(__name__).warning(f"Thumbnail OpenRouter failed: {exc}")
+        logging.getLogger(__name__).warning(f"Thumbnail Cloudflare failed: {exc}")
     # Fallback: resize first slide
     proc = subprocess.run(
         [_ffmpeg(), "-y", "-i", str(first_image), "-vf", "scale=1280:720",

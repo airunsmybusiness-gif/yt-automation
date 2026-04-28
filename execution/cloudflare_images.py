@@ -30,6 +30,28 @@ class CloudflareImageError(RuntimeError):
     """Raised when Cloudflare image generation fails."""
 
 
+STYLE_PREFIX: str = (
+    "Hand-drawn stick figure illustration in dark navy blue ink on cream paper. "
+    "Naive folk-art style, simple line drawing, single central figure or small scene, "
+    "minimal shading, expressive eyes, emotionally resonant. "
+    "ABSOLUTELY NO TEXT. NO LETTERS. NO WORDS. NO SIGNS. NO WRITING. NO SYMBOLS. NO NUMBERS. "
+    "Empty whitespace background. Single clear scene only. NOT a collage. NOT multiple panels. "
+    "Scene depicts: "
+)
+NEGATIVE_SUFFIX: str = (
+    " --no text, letters, words, writing, signs, captions, labels, watermarks, "
+    "logos, gibberish, fake text, scribbles, multiple frames, collage, grid layout, "
+    "tiled images, photographs, realistic photos, 3D render"
+)
+
+
+def _wrap_prompt(raw: str) -> str:
+    """Strip user prompt to scene description and wrap in style rails."""
+    # Truncate to leave room for style wrapper
+    scene = raw.strip()[:1400]
+    return STYLE_PREFIX + scene + NEGATIVE_SUFFIX
+
+
 def _call_cloudflare(prompt: str) -> bytes:
     resp = requests.post(
         API_URL,
@@ -37,7 +59,7 @@ def _call_cloudflare(prompt: str) -> bytes:
             "Authorization": f"Bearer {CLOUDFLARE_API_TOKEN}",
             "Content-Type": "application/json",
         },
-        json={"prompt": prompt[:2000]},
+        json={"prompt": _wrap_prompt(prompt)[:2000]},
         timeout=90,
     )
     resp.raise_for_status()
