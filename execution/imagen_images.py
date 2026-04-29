@@ -59,5 +59,5 @@ def generate_batch(prompts: list, output_dir: Path) -> dict:
             logger.info(f"Replicate Flux Dev: {i+1}/{len(prompts)} (success={success})")
         else:
             failed += 1
-        time.sleep(0.5)
+        time.sleep(8)  # Replicate free: ~6 req/min, stay safe
     return {"success": success, "skipped": 0, "failed": failed}

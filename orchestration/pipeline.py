@@ -318,9 +318,9 @@ class Pipeline:
         result = imagen_images.generate_batch(unique, images_dir)
         log.info(
             f"[{vid_id[:8]}] Images done: success={result['success']} "
-            f"skipped={result['skipped_count']} failed={result['failure_count']}"
+            f"skipped={result.get('skipped', 0)} failed={result['failure_count']}"
         )
-        if result["success"] == 0 and result["skipped_count"] == 0:
+        if result["success"] == 0 and result.get("skipped", 0) == 0:
             raise RuntimeError(f"No images generated: {result}")
 
     def _fetch_agent_prompt(self, agent_name: str) -> str:
