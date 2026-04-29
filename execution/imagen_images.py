@@ -20,7 +20,9 @@ STYLE_PREFIX = (
 
 def generate_image(prompt: str, output_path: Path, max_retries: int = 3) -> bool:
     """Generate one image via Imagen 4 Fast. Returns True on success."""
-    full_prompt = STYLE_PREFIX + prompt
+    if isinstance(prompt, dict):
+        prompt = prompt.get("formatted_prompt", prompt.get("prompt", str(prompt)))
+    full_prompt = STYLE_PREFIX + str(prompt)
     payload = {
         "instances": [{"prompt": full_prompt}],
         "parameters": {"sampleCount": 1, "aspectRatio": "1:1"},
