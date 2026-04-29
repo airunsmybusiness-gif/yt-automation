@@ -200,7 +200,11 @@ class Pipeline:
             )
             raw = resp.content[0].text
             script_json = self._extract_json(raw)
-            sentences = script_json.get("sentences") or script_json.get("script") or []
+            # Handle both {"sentences": [...]} and bare [...] from different LLMs
+            if isinstance(script_json, list):
+                sentences = script_json
+            else:
+                sentences = script_json.get("sentences") or script_json.get("script") or []
             if not sentences:
                 raise RuntimeError(f"Script agent returned no sentences: {raw[:400]}")
             sentences = sentences[:MAX_SENTENCES]
