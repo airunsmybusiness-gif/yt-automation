@@ -56,7 +56,7 @@ def generate_image(prompt: Any, output_path: Path, max_retries: int = 3) -> bool
                     "prompt": full_prompt,
                     "num_outputs": 1,
                     "aspect_ratio": "1:1",
-                    "output_format": "png",
+                    "output_format": "jpg",
                     "guidance": 3.5,
                     "num_inference_steps": 28,
                 },
@@ -74,21 +74,31 @@ def generate_image(prompt: Any, output_path: Path, max_retries: int = 3) -> bool
     return False
 
 
+def _resolve_filename(prompt: Any, fallback_index: int) -> str:
+    """Use sentence_number for filename; renderer expects {NNNN}.jpg."""
+    if isinstance(prompt, dict):
+        sn = prompt.get("sentence_number") or prompt.get("start_sentence_number")
+        if sn is not None:
+            return f"{int(sn):04d}.jpg"
+    return f"{fallback_index:04d}.jpg"
+
+
 def generate_batch(prompts: list, output_dir: Path) -> dict:
     output_dir.mkdir(parents=True, exist_ok=True)
     success = failed = skipped = 0
     total = len(prompts)
     for i, prompt in enumerate(prompts):
-        path = output_dir / f"img_{i:03d}.png"
+        filename = _resolve_filename(prompt, i)
+        path = output_dir / filename
         if path.exists() and path.stat().st_size >= MIN_VALID_BYTES:
             skipped += 1
             success += 1
             continue
         if generate_image(prompt, path):
             success += 1
-            logger.info("Replicate Flux Dev: %d/%d (success=%d)", i + 1, total, success)
+            logger.info("Replicate Flux Dev: %d/%d -> %s (success=%d)", i + 1, total, filename, success)
         else:
             failed += 1
-            logger.error("Replicate Flux Dev: %d/%d FAILED (failed=%d)", i + 1, total, failed)
+            logger.error("Replicate Flux Dev: %d/%d %s FAILED (failed=%d)", i + 1, total, filename, failed)
         time.sleep(THROTTLE_SECONDS)
     return {"success": success, "skipped": skipped, "failed": failed}
