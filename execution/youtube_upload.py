@@ -23,7 +23,6 @@ YT_REFRESH_TOKEN: str = os.environ["YOUTUBE_REFRESH_TOKEN"]
 YT_TOKEN_URI: str = "https://oauth2.googleapis.com/token"
 SCOPES: list[str] = [
     "https://www.googleapis.com/auth/youtube.upload",
-    "https://www.googleapis.com/auth/youtube.readonly",
 ]
 
 
