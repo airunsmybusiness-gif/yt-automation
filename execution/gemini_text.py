@@ -1,110 +1,55 @@
-"""Groq Llama 3.3 70B text generator — Anthropic SDK compatibility shim."""
-import os
+"""Anthropic Claude Sonnet text generator — Anthropic SDK compatibility shim.
+
+Drop-in replacement for the prior Groq shim. Same class name and method
+signature so orchestration/pipeline.py needs no changes.
+"""
+
 import logging
-import requests
+import os
+from typing import Any
+
+import anthropic
 
 logger = logging.getLogger(__name__)
 
-GROQ_API_KEY = os.environ["GROQ_API_KEY"]
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-MODEL = "llama-3.3-70b-versatile"  # 70B with truncated inputs
-
-
-def generate_text(
-    system_prompt: str,
-    user_prompt: str,
-    max_tokens: int = 8192,
-    temperature: float = 1.0,
-) -> str:
-    """Generate text via Groq. Truncates user_prompt to fit Groq free tier TPM."""
-    # Groq free tier TPM cap ~30k. Reserve room for system + output. Cap user input at 18k chars (~4.5k tokens).
-    MAX_USER_CHARS = 18000
-    if len(user_prompt) > MAX_USER_CHARS:
-        logger.warning(
-            f"Truncating user_prompt {len(user_prompt)} -> {MAX_USER_CHARS} chars"
-        )
-        user_prompt = user_prompt[:MAX_USER_CHARS] + "\n\n[truncated for token limit]"
-    if max_tokens > 4096:
-        max_tokens = 4096  # Groq free tier output cap
-    messages = []
-    if system_prompt and system_prompt.strip():
-        sys_capped = system_prompt[:6000]
-        messages.append({"role": "system", "content": sys_capped})
-    messages.append({"role": "user", "content": user_prompt})
-
-    # Enable JSON mode if prompt asks for JSON output (prevents malformed output)
-    wants_json = any(
-        kw in (system_prompt + user_prompt).lower()
-        for kw in ["json", "json object", "valid json"]
-    )
-    payload = {
-        "model": MODEL,
-        "messages": messages,
-        "max_tokens": max_tokens,
-        "temperature": temperature,
-    }
-    if wants_json:
-        payload["response_format"] = {"type": "json_object"}
-    headers = {
-        "Authorization": f"Bearer {GROQ_API_KEY}",
-        "Content-Type": "application/json",
-    }
-    r = requests.post(GROQ_URL, json=payload, headers=headers, timeout=120)
-    r.raise_for_status()
-    data = r.json()
-    text = data["choices"][0]["message"]["content"]
-    if not text:
-        raise RuntimeError(f"Groq returned empty: {data}")
-    return text
+ANTHROPIC_API_KEY = os.environ["ANTHROPIC_API_KEY"]
+MODEL = os.environ.get("CLAUDE_MODEL", "claude-sonnet-4-5-20250929")
+MAX_INPUT_CHARS = 180_000  # ~45k tokens, well under Sonnet's 200k window
+MAX_OUTPUT_TOKENS = 4096
 
 
 class GeminiMessageShim:
-    """Anthropic SDK compatibility shim — name kept for backward compat."""
-    def __init__(self):
-        pass
+    """Anthropic-backed shim. Class name preserved for backwards compatibility."""
 
-    @property
-    def messages(self):
-        return self
+    def __init__(self) -> None:
+        self._client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
-    def create(self, model=None, max_tokens=4096, system="", messages=None, **kwargs):
-        user_text = ""
-        if messages:
-            for m in messages:
-                role = m.get("role", "")
-                content = m.get("content", "")
-                if isinstance(content, list):
-                    parts = []
-                    for b in content:
-                        if isinstance(b, dict):
-                            if b.get("type") == "text":
-                                parts.append(b.get("text", ""))
-                        elif isinstance(b, str):
-                            parts.append(b)
-                    chunk = "\n".join(parts)
-                else:
-                    chunk = str(content) if content else ""
-                if role == "user":
-                    user_text += chunk + "\n"
-                elif role == "assistant":
-                    user_text += f"[Previous assistant turn]: {chunk}\n"
-        if not user_text.strip():
-            raise RuntimeError(f"Empty user text. messages={messages}")
+    def generate(
+        self,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int = MAX_OUTPUT_TOKENS,
+    ) -> str:
+        """Generate text via Claude Sonnet. Truncates user_prompt defensively."""
+        if len(user_prompt) > MAX_INPUT_CHARS:
+            logger.warning(
+                "User prompt %d chars exceeds %d, truncating",
+                len(user_prompt), MAX_INPUT_CHARS,
+            )
+            user_prompt = user_prompt[:MAX_INPUT_CHARS]
 
-        text = generate_text(
-            system_prompt=system or "",
-            user_prompt=user_text,
-            max_tokens=max_tokens,
-        )
+        try:
+            resp = self._client.messages.create(
+                model=MODEL,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
+        except anthropic.APIStatusError as e:
+            logger.error("Anthropic API error: %s", e)
+            raise RuntimeError(f"Anthropic call failed: {e}") from e
 
-        class _Block:
-            def __init__(self, text):
-                self.text = text
-                self.type = "text"
+        if not resp.content or not resp.content[0].text:
+            raise RuntimeError(f"Anthropic returned empty: {resp}")
 
-        class _Response:
-            def __init__(self, text):
-                self.content = [_Block(text)]
-                self.stop_reason = "end_turn"
-
-        return _Response(text)
+        return resp.content[0].text
