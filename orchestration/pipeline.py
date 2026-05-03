@@ -355,7 +355,7 @@ class Pipeline:
         prompt = template.replace("{{sentence}}", sentence_blob[:500])
         try:
             resp = self.ai.messages.create(
-                model="gemini-2.5-flash",
+                model="claude-haiku-4-5",
                 max_tokens=120,
                 messages=[{"role": "user", "content": prompt}],
             )
@@ -382,7 +382,7 @@ class Pipeline:
                 + "\n\nReturn ONLY valid JSON with keys: title, description, tags (array of 15+ strings)."
             )
             resp = self.ai.messages.create(
-                model="gemini-2.5-flash",
+                model="claude-haiku-4-5",
                 max_tokens=2000,
                 messages=[{"role": "user", "content": prompt}],
             )
