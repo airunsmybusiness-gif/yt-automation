@@ -51,3 +51,24 @@ app = FastAPI(title="YT Automation", lifespan=lifespan)
 
 from api.routes import router  # noqa: E402 — after app created
 app.include_router(router)
+
+
+@app.get("/_debug/deps")
+def _debug_deps() -> dict:
+    """Confirm what packages are actually installed in the running container."""
+    import importlib.util
+    import sys
+    return {
+        "python": sys.version,
+        "anthropic": importlib.util.find_spec("anthropic") is not None,
+        "replicate": importlib.util.find_spec("replicate") is not None,
+        "google_genai": importlib.util.find_spec("google.genai") is not None,
+    }
+
+
+@app.post("/_debug/discover")
+def _debug_discover() -> dict:
+    """Trigger discovery inside the live container, return result."""
+    from execution.viral_finder import discover_and_email
+    result = discover_and_email()
+    return {"emails_sent": result}
