@@ -63,8 +63,31 @@ class Pipeline:
         except Exception:
             return True
 
+    def _uploaded_within_24h(self) -> bool:
+        """Hard cap: skip processing if any video uploaded in the last 24h."""
+        from datetime import datetime, timedelta, timezone
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+        try:
+            res = (
+                self.sb.table("yt_viral_videos")
+                .select("id,production_completed_at")
+                .eq("status", "done")
+                .gte("production_completed_at", cutoff)
+                .limit(1)
+                .execute()
+            )
+            if res.data:
+                log.info("24h upload cap: video uploaded recently, skipping run")
+                return True
+            return False
+        except Exception as exc:
+            log.warning(f"24h cap check failed (proceeding anyway): {exc}")
+            return False
+
     def process_next(self) -> None:
         if not self._check_cloudflare_quota():
+            return
+        if self._uploaded_within_24h():
             return
         row = (
             self.sb.table("yt_viral_videos")
