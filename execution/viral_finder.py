@@ -156,6 +156,34 @@ def _format_video_row(video: dict, channel_username: str) -> dict:
     }
 
 
+
+def _is_on_niche(title: str, description: str) -> bool:
+    """Use Claude Haiku to verify the video matches psychology/self-improvement niche.
+
+    Returns True only when classifier says YES. Any failure -> False (skip safely).
+    """
+    import anthropic
+    try:
+        client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        prompt = (
+            f"Title: {title}\n"
+            f"Description: {(description or '')[:500]}\n\n"
+            "Is this video primarily about psychology, mental health, human behavior, "
+            "self-improvement, productivity, mindset, motivation, emotional intelligence, "
+            "or personal growth? Answer with exactly one word: YES or NO."
+        )
+        resp = client.messages.create(
+            model="claude-haiku-4-5",
+            max_tokens=8,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        answer = resp.content[0].text.strip().upper()
+        return answer.startswith("YES")
+    except Exception as exc:
+        logger.warning("Niche filter failed for '%s': %s", title[:40], exc)
+        return False
+
+
 def discover_and_email() -> int:
     """Run discovery, pick best candidate, email for approval. Returns 1 if email sent, 0 if nothing found."""
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -203,6 +231,11 @@ def discover_and_email() -> int:
                 if _parse_iso_duration(v["contentDetails"]["duration"]) > 1800:
                     continue
                 if _is_viral(v, thresholds):
+                    title = v["snippet"].get("title", "")
+                    desc = v["snippet"].get("description", "")
+                    if not _is_on_niche(title, desc):
+                        logger.info("Off-niche, skipping: %s", title[:60])
+                        continue
                     candidates.append(_format_video_row(v, username))
         except Exception as exc:
             logger.warning("Channel %s failed: %s", username, exc)
