@@ -18,7 +18,7 @@ from execution.email_sender import send_approval_email
 logger = logging.getLogger(__name__)
 
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
+SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 YT_API_BASE = "https://www.googleapis.com/youtube/v3"
 
 

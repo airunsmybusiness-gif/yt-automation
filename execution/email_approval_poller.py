@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 GMAIL_CREDENTIALS_JSON: str = os.environ["GMAIL_CREDENTIALS_JSON"]
 GMAIL_TOKEN_JSON: str = os.environ["GMAIL_TOKEN_JSON"]
 SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_KEY: str = os.environ["SUPABASE_KEY"]
+SUPABASE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
 
 YES_PATTERN = re.compile(r"\b(yes|yep|yup|y|sure|do it|go|approve|approved)\b", re.IGNORECASE)
 NO_PATTERN = re.compile(r"\b(no|nope|n|skip|reject|deny)\b", re.IGNORECASE)
