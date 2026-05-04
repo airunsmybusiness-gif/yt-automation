@@ -1,9 +1,10 @@
-"""Daily viral video discovery — picks the single best new video and emails for approval.
+"""Daily viral video discovery — monitors competitor channels for newly viral uploads.
 
-Translation of Nour's n8n Viral_Videos_Finder_Workflow.json, simplified to one
-candidate per run.
+Picks the single best new video from established channels in the niche, deduped
+against past discoveries, and emails one approval request.
 """
 
+import json
 import logging
 import os
 import re
@@ -38,7 +39,7 @@ def _get_thresholds(sb: Any) -> dict:
     if not res.data:
         return {"minViews": 7000, "earlyHours": 12, "earlyViews": 4000, "maxAgeHours": 48}
     val = res.data[0]["setting_value"]
-    return val if isinstance(val, dict) else __import__("json").loads(val)
+    return val if isinstance(val, dict) else json.loads(val)
 
 
 def _parse_iso_duration(d: str) -> int:
@@ -73,17 +74,46 @@ def _is_short(video: dict) -> bool:
     return "#shorts" in text and dur <= 180
 
 
-def _search_by_keyword(api_key: str, keyword: str, t: dict) -> list[str]:
-    pub_after = (datetime.now(timezone.utc) - timedelta(hours=t["maxAgeHours"])).isoformat()
+def _resolve_channel_id(api_key: str, username: str) -> str | None:
+    """Look up a channel ID from a @handle or channel name. Returns None on miss."""
     r = requests.get(
         f"{YT_API_BASE}/search",
-        params={
-            "part": "snippet", "q": keyword, "type": "video", "order": "date",
-            "maxResults": 25, "publishedAfter": pub_after, "key": api_key,
-        }, timeout=30,
+        params={"part": "snippet", "q": username, "type": "channel",
+                "maxResults": 1, "key": api_key},
+        timeout=30,
     )
-    r.raise_for_status()
-    return [item["id"]["videoId"] for item in r.json().get("items", []) if "videoId" in item.get("id", {})]
+    if r.status_code != 200:
+        return None
+    items = r.json().get("items", [])
+    if not items:
+        return None
+    return items[0]["id"].get("channelId")
+
+
+def _get_uploads_playlist(api_key: str, channel_id: str) -> str | None:
+    r = requests.get(
+        f"{YT_API_BASE}/channels",
+        params={"part": "contentDetails", "id": channel_id, "key": api_key},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        return None
+    items = r.json().get("items", [])
+    if not items:
+        return None
+    return items[0]["contentDetails"]["relatedPlaylists"]["uploads"]
+
+
+def _get_recent_uploads(api_key: str, playlist_id: str) -> list[str]:
+    r = requests.get(
+        f"{YT_API_BASE}/playlistItems",
+        params={"part": "contentDetails", "playlistId": playlist_id,
+                "maxResults": 25, "key": api_key},
+        timeout=30,
+    )
+    if r.status_code != 200:
+        return []
+    return [item["contentDetails"]["videoId"] for item in r.json().get("items", [])]
 
 
 def _fetch_video_stats(api_key: str, video_ids: list[str]) -> list[dict]:
@@ -91,16 +121,15 @@ def _fetch_video_stats(api_key: str, video_ids: list[str]) -> list[dict]:
         return []
     r = requests.get(
         f"{YT_API_BASE}/videos",
-        params={
-            "part": "snippet,statistics,contentDetails",
-            "id": ",".join(video_ids[:50]), "key": api_key,
-        }, timeout=30,
+        params={"part": "snippet,statistics,contentDetails",
+                "id": ",".join(video_ids[:50]), "key": api_key},
+        timeout=30,
     )
     r.raise_for_status()
     return r.json().get("items", [])
 
 
-def _format_video_row(video: dict, source_type: str, source_value: str) -> dict:
+def _format_video_row(video: dict, channel_username: str) -> dict:
     sn = video["snippet"]
     st = video["statistics"]
     cd = video["contentDetails"]
@@ -110,6 +139,7 @@ def _format_video_row(video: dict, source_type: str, source_value: str) -> dict:
         "title": sn.get("title", ""),
         "channel_title": sn.get("channelTitle", ""),
         "channel_id": sn.get("channelId", ""),
+        "channel_username": channel_username,
         "published_at": sn.get("publishedAt"),
         "views": int(st.get("viewCount", 0)),
         "likes": int(st.get("likeCount", 0)),
@@ -119,8 +149,8 @@ def _format_video_row(video: dict, source_type: str, source_value: str) -> dict:
         "tags": sn.get("tags", []),
         "description": (sn.get("description") or "")[:1000],
         "age_hours": round(_hours_since(sn["publishedAt"]), 2),
-        "source_type": source_type,
-        "source_value": source_value,
+        "source_type": "channel",
+        "source_value": channel_username,
         "status": "queued",
         "suitable": None,
     }
@@ -132,23 +162,40 @@ def discover_and_email() -> int:
     api_key = _get_active_api_key(sb)
     thresholds = _get_thresholds(sb)
 
-    # Get all keywords; pick top by priority
-    kw_rows = sb.table("yt_search_keywords").select("keyword,priority").eq(
-        "is_active", True
-    ).order("priority", desc=True).limit(8).execute()
-    keywords = [r["keyword"] for r in kw_rows.data]
+    competitors = sb.table("yt_competitors").select(
+        "channel_username,channel_id"
+    ).eq("is_active", True).execute().data
+    if not competitors:
+        logger.warning("No active competitors configured")
+        return 0
 
-    # Existing videos to dedupe
     existing = sb.table("yt_viral_videos").select("video_id").execute()
     seen_ids = {r["video_id"] for r in existing.data}
 
     candidates: list[dict] = []
-    for kw in keywords:
+    for comp in competitors:
+        username = comp["channel_username"]
+        channel_id = comp.get("channel_id")
         try:
-            video_ids = _search_by_keyword(api_key, kw, thresholds)
+            if not channel_id:
+                channel_id = _resolve_channel_id(api_key, username)
+                if not channel_id:
+                    logger.warning("Could not resolve channel for %s", username)
+                    continue
+                sb.table("yt_competitors").update(
+                    {"channel_id": channel_id}
+                ).eq("channel_username", username).execute()
+
+            playlist_id = _get_uploads_playlist(api_key, channel_id)
+            if not playlist_id:
+                logger.warning("No uploads playlist for %s", username)
+                continue
+
+            video_ids = _get_recent_uploads(api_key, playlist_id)
             video_ids = [v for v in video_ids if v not in seen_ids]
             if not video_ids:
                 continue
+
             videos = _fetch_video_stats(api_key, video_ids)
             for v in videos:
                 if _is_short(v):
@@ -156,27 +203,24 @@ def discover_and_email() -> int:
                 if _parse_iso_duration(v["contentDetails"]["duration"]) > 1800:
                     continue
                 if _is_viral(v, thresholds):
-                    candidates.append(_format_video_row(v, "search", kw))
-        except Exception as e:
-            logger.warning("Keyword search failed for '%s': %s", kw, e)
+                    candidates.append(_format_video_row(v, username))
+        except Exception as exc:
+            logger.warning("Channel %s failed: %s", username, exc)
             continue
 
     if not candidates:
         logger.info("Discovery: no viral videos found this run")
         return 0
 
-    # Pick the highest view count candidate
     best = max(candidates, key=lambda v: v["views"])
     logger.info(
-        "Discovery: best candidate '%s' with %d views (age %.1fh)",
-        best["title"][:50], best["views"], best["age_hours"],
+        "Discovery: best candidate '%s' from %s with %d views (age %.1fh)",
+        best["title"][:50], best["channel_username"], best["views"], best["age_hours"],
     )
 
-    # Insert into Supabase
     inserted = sb.table("yt_viral_videos").insert(best).execute()
     record = inserted.data[0]
 
-    # Send approval email
     thread_id = send_approval_email(record)
     if thread_id:
         sb.table("yt_viral_videos").update({"thread_id": thread_id}).eq(
