@@ -34,8 +34,4 @@ def fetch_transcript(yt_video_id: str, fallback_description: str = "") -> tuple[
     except ImportError:
         logger.error("youtube-transcript-api not installed")
 
-    if fallback_description and len(fallback_description) > 200:
-        logger.warning("Falling back to description as transcript for %s", yt_video_id)
-        return fallback_description, "en", "supadata"
-
-    raise RuntimeError(f"No transcript or usable description for {yt_video_id}")
+    raise RuntimeError(f"No public captions for {yt_video_id} - refusing description fallback")

@@ -53,3 +53,25 @@ from api.routes import router  # noqa: E402 — after app created
 app.include_router(router)
 
 
+
+
+
+@app.get("/_debug/v1/status")
+def _debug_v1_status() -> dict:
+    import importlib.util, os
+    from supabase import create_client
+    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+    rows = sb.table("yt_viral_videos").select(
+        "video_id,title,channel_username,status,suitable,production_notes"
+    ).order("scraped_at", desc=True).limit(5).execute().data
+    return {
+        "anthropic": importlib.util.find_spec("anthropic") is not None,
+        "ffmpeg": os.path.exists("/usr/bin/ffmpeg") or os.path.exists("/usr/local/bin/ffmpeg"),
+        "recent_videos": rows,
+    }
+
+
+@app.post("/_debug/v1/discover")
+def _debug_v1_discover() -> dict:
+    from execution.viral_finder import discover_and_email
+    return {"emails_sent": discover_and_email()}
