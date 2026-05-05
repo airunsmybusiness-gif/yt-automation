@@ -96,3 +96,31 @@ def _debug_v1_mark_unsuitable(video_id: str) -> dict:
         "production_notes": "No public captions; skipped",
     }).eq("id", vid_uuid).execute()
     return {"cleaned": video_id, "uuid": vid_uuid}
+
+
+
+@app.post("/_debug/v1/seed_channels")
+def _debug_v1_seed_channels() -> dict:
+    """Insert mid-tier psych/self-improvement channels known to leave captions on."""
+    import os
+    from supabase import create_client
+    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+    channels = [
+        ("@Psych2go", "UCkJEpR7JmS36tajD34Gp4VA"),
+        ("@TherapyinaNutshell", "UCpuqYFKLkcEryEieomiAv3Q"),
+        ("@HealthyGamerGG", "UClHVl2N3jPEbkNJVx-ItQIQ"),
+        ("@KatiMorton", "UCzBYOHyEEzlkRdDOSobbpvw"),
+        ("@DrTraceyMarks", "UCKGie8VsdNaqX5p-W-tk04Q"),
+        ("@TheMindfulMovement", "UCh9G-_BCmLYsq5W3pQAaung"),
+        ("@MedCircle", "UCEJoRvFCdkPGiv3IZyhDM2g"),
+        ("@PsychologyAndYou", "UCDkx66MZD2Z5y8gnrrvOG_g"),
+        ("@DoctorMike", "UC0QHWhjbe5fGJEPz3sVb6nw"),
+        ("@TheSchoolofLife", "UC7IcJI8PUf5Z3zKxnZvTBog"),
+    ]
+    rows = [{
+        "channel_username": u,
+        "channel_id": cid,
+        "is_active": True,
+    } for u, cid in channels]
+    sb.table("yt_competitors").upsert(rows, on_conflict="channel_username").execute()
+    return {"seeded": len(rows), "channels": [u for u, _ in channels]}
