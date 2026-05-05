@@ -198,7 +198,7 @@ class Pipeline:
             "provider": provider,
         }).execute()
         self.sb.table("yt_viral_videos").update({
-            "transcript_status": "fetched",
+            "transcript_status": "completed",
         }).eq("id", vid_id).execute()
         log.info(f"[{vid_id[:8]}] Transcript stored ({provider}, {len(content)} chars)")
         return content
@@ -244,7 +244,7 @@ class Pipeline:
             ]
             self.sb.table("yt_comments").upsert(payload, on_conflict="comment_id").execute()
             self.sb.table("yt_viral_videos").update({
-                "comments_status": "fetched",
+                "comments_status": "completed",
             }).eq("id", vid_id).execute()
         return [c["content"] for c in comments if c.get("content")]
 

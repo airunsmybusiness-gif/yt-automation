@@ -26,7 +26,7 @@ def fetch_transcript(yt_video_id: str, fallback_description: str = "") -> tuple[
             text = " ".join(s["text"].strip() for s in segs if s.get("text"))
             if text:
                 logger.info("Transcript fetched via youtube-transcript-api: %d chars", len(text))
-                return text, "en", "youtube_transcript_api"
+                return text, "en", "supadata"
         except (TranscriptsDisabled, NoTranscriptFound) as exc:
             logger.warning("No public captions for %s: %s", yt_video_id, exc)
         except Exception as exc:
@@ -36,6 +36,6 @@ def fetch_transcript(yt_video_id: str, fallback_description: str = "") -> tuple[
 
     if fallback_description and len(fallback_description) > 200:
         logger.warning("Falling back to description as transcript for %s", yt_video_id)
-        return fallback_description, "en", "description_fallback"
+        return fallback_description, "en", "supadata"
 
     raise RuntimeError(f"No transcript or usable description for {yt_video_id}")
