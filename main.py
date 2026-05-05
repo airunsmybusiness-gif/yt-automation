@@ -78,13 +78,16 @@ def _debug_v1_discover() -> dict:
 
 
 
-@app.post("/_debug/v1/cleanup_failed_video")
-def _debug_v1_cleanup() -> dict:
-    """One-shot: drop bad transcript and mark p-plRm7J4PM unsuitable."""
+@app.post("/_debug/v1/mark_unsuitable")
+def _debug_v1_mark_unsuitable(video_id: str) -> dict:
+    """Mark a YouTube video_id unsuitable and clear any stored transcript."""
     import os
     from supabase import create_client
     sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
-    vid_uuid = "8932ae99-2e63-4986-b071-11682a74b4d4"
+    row = sb.table("yt_viral_videos").select("id").eq("video_id", video_id).execute().data
+    if not row:
+        return {"error": f"video_id {video_id} not found"}
+    vid_uuid = row[0]["id"]
     sb.table("yt_video_transcripts").delete().eq("video_record_id", vid_uuid).execute()
     sb.table("yt_viral_videos").update({
         "status": "failed",
@@ -92,4 +95,4 @@ def _debug_v1_cleanup() -> dict:
         "transcript_status": "no_transcript",
         "production_notes": "No public captions; skipped",
     }).eq("id", vid_uuid).execute()
-    return {"cleaned": vid_uuid}
+    return {"cleaned": video_id, "uuid": vid_uuid}
