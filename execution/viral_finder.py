@@ -252,9 +252,6 @@ def discover_and_email() -> int:
                     if not _is_on_niche(title, desc):
                         logger.info("Off-niche, skipping: %s", title[:60])
                         continue
-                    if not _has_captions(v["id"]):
-                        logger.info("No captions, skipping: %s", title[:60])
-                        continue
                     candidates.append(_format_video_row(v, username))
         except Exception as exc:
             logger.warning("Channel %s failed: %s", username, exc)
