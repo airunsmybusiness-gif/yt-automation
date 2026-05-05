@@ -25,7 +25,7 @@ from typing import Any
 from execution.gemini_text import GeminiMessageShim
 from supabase import Client, create_client
 
-from execution import imagen_images, edge_tts_gen, video_render, youtube_upload
+from execution import imagen_images, openai_tts, video_render, youtube_upload
 
 log = logging.getLogger(__name__)
 
@@ -360,7 +360,7 @@ class Pipeline:
             start_sentence = chunk[0]["sentence_number"]
             out_path = audio_dir / f"chunk_{start_sentence:04d}.mp3"
             log.info(f"[{vid_id[:8]}] TTS chunk {start_sentence}/{len(sentences)}")
-            edge_tts_gen.generate_chunk(chunk, out_path)
+            openai_tts.generate_chunk(chunk, out_path)
             chunks.append({
                 "start_sentence": start_sentence,
                 "num_sentences": len(chunk),

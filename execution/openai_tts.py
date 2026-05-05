@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 
 OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
 TTS_URL: str = "https://api.openai.com/v1/audio/speech"
-MODEL: str = "tts-1"
+MODEL: str = "tts-1-hd"
 VOICE: str = "nova"
 RESPONSE_FORMAT: str = "mp3"
 MAX_RETRIES: int = 3
