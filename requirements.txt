@@ -13,3 +13,5 @@ replicate>=1.0.0
 
 # rebuild 1777923342
 youtube-transcript-api==0.6.2
+yt-dlp>=0.0.0
+groq>=0.0.0

@@ -157,21 +157,6 @@ def _format_video_row(video: dict, channel_username: str) -> dict:
 
 
 
-def _has_captions(yt_video_id: str) -> bool:
-    """Check if a YouTube video has public English captions."""
-    try:
-        from youtube_transcript_api import YouTubeTranscriptApi
-        from youtube_transcript_api._errors import TranscriptsDisabled, NoTranscriptFound
-        try:
-            YouTubeTranscriptApi.get_transcript(yt_video_id, languages=["en", "en-US", "en-GB"])
-            return True
-        except (TranscriptsDisabled, NoTranscriptFound):
-            return False
-        except Exception:
-            return False
-    except ImportError:
-        return False
-
 
 def _is_on_niche(title: str, description: str) -> bool:
     """Use Claude Haiku to verify the video matches psychology/self-improvement niche.
