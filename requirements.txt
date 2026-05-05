@@ -12,3 +12,4 @@ google-genai>=0.8.0
 replicate>=1.0.0
 
 # rebuild 1777923342
+youtube-transcript-api==0.6.2

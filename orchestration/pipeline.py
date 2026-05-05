@@ -178,7 +178,30 @@ class Pipeline:
         if existing.data:
             log.info(f"[{vid_id[:8]}] Transcript cached")
             return existing.data[0]["content"]
-        raise RuntimeError(f"No transcript for {yt_id}; populate yt_video_transcripts first")
+
+        log.info(f"[{vid_id[:8]}] Fetching transcript for {yt_id}")
+        from execution.transcript_fetch import fetch_transcript
+        row = (
+            self.sb.table("yt_viral_videos")
+            .select("description")
+            .eq("id", vid_id)
+            .execute()
+        )
+        desc = (row.data[0].get("description") if row.data else "") or ""
+        content, lang, provider = fetch_transcript(yt_id, fallback_description=desc)
+        self.sb.table("yt_video_transcripts").insert({
+            "video_record_id": vid_id,
+            "video_id": yt_id,
+            "content": content,
+            "language_code": lang,
+            "type": "source",
+            "provider": provider,
+        }).execute()
+        self.sb.table("yt_viral_videos").update({
+            "transcript_status": "fetched",
+        }).eq("id", vid_id).execute()
+        log.info(f"[{vid_id[:8]}] Transcript stored ({provider}, {len(content)} chars)")
+        return content
 
     def _fetch_comments(self, vid_id: str) -> list[str]:
         rows = (
@@ -189,7 +212,41 @@ class Pipeline:
             .limit(30)
             .execute()
         )
-        return [r["content"] for r in (rows.data or []) if r.get("content")]
+        if rows.data:
+            return [r["content"] for r in rows.data if r.get("content")]
+
+        log.info(f"[{vid_id[:8]}] Fetching comments")
+        vid_row = (
+            self.sb.table("yt_viral_videos")
+            .select("video_id")
+            .eq("id", vid_id)
+            .execute()
+        )
+        if not vid_row.data:
+            return []
+        yt_id = vid_row.data[0]["video_id"]
+        api_row = (
+            self.sb.table("yt_api_accounts")
+            .select("api_key")
+            .eq("quota_exhausted", False)
+            .limit(1)
+            .execute()
+        )
+        if not api_row.data:
+            log.warning(f"[{vid_id[:8]}] No active YT API key for comments")
+            return []
+        from execution.comments_fetch import fetch_top_comments
+        comments = fetch_top_comments(yt_id, api_row.data[0]["api_key"])
+        if comments:
+            payload = [
+                {**c, "video_record_id": vid_id, "video_id": yt_id}
+                for c in comments
+            ]
+            self.sb.table("yt_comments").upsert(payload, on_conflict="comment_id").execute()
+            self.sb.table("yt_viral_videos").update({
+                "comments_status": "fetched",
+            }).eq("id", vid_id).execute()
+        return [c["content"] for c in comments if c.get("content")]
 
     def _ensure_scripts(
         self, vid_id: str, title: str, transcript: str, comments: list[str]
