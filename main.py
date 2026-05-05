@@ -75,3 +75,21 @@ def _debug_v1_status() -> dict:
 def _debug_v1_discover() -> dict:
     from execution.viral_finder import discover_and_email
     return {"emails_sent": discover_and_email()}
+
+
+
+@app.post("/_debug/v1/cleanup_failed_video")
+def _debug_v1_cleanup() -> dict:
+    """One-shot: drop bad transcript and mark p-plRm7J4PM unsuitable."""
+    import os
+    from supabase import create_client
+    sb = create_client(os.environ["SUPABASE_URL"], os.environ["SUPABASE_SERVICE_KEY"])
+    vid_uuid = "8932ae99-2e63-4986-b071-11682a74b4d4"
+    sb.table("yt_video_transcripts").delete().eq("video_record_id", vid_uuid).execute()
+    sb.table("yt_viral_videos").update({
+        "status": "failed",
+        "suitable": False,
+        "transcript_status": "no_transcript",
+        "production_notes": "No public captions; skipped",
+    }).eq("id", vid_uuid).execute()
+    return {"cleaned": vid_uuid}
