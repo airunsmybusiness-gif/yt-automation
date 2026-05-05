@@ -252,7 +252,7 @@ def discover_and_email() -> int:
                     if not _is_on_niche(title, desc):
                         logger.info("Off-niche, skipping: %s", title[:60])
                         continue
-                    if not _has_captions(video_id):
+                    if not _has_captions(v["id"]):
                         logger.info("No captions, skipping: %s", title[:60])
                         continue
                     candidates.append(_format_video_row(v, username))
