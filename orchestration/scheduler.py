@@ -20,13 +20,14 @@ def register_jobs(scheduler: AsyncIOScheduler, pipeline: Pipeline) -> None:
     scheduler.add_job(
         _discover_daily,
         "cron",
+        day_of_week="tue,thu,sat",
         hour=14,
         minute=0,
         id="discover_daily",
         max_instances=1,
         coalesce=True,
     )
-    log.info("Registered job: discover_daily at 14:00 UTC (8am CST)")
+    log.info("Registered job: discover_daily Tue/Thu/Sat at 14:00 UTC (8am CST)")
 
     scheduler.add_job(
         _poll_approvals,
