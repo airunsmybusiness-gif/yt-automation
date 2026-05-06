@@ -25,7 +25,7 @@ from typing import Any
 from execution.gemini_text import GeminiMessageShim
 from supabase import Client, create_client
 
-from execution import openrouter_images, openai_tts, video_render, youtube_upload
+from execution import cloudflare_images, openai_tts, video_render, youtube_upload
 
 log = logging.getLogger(__name__)
 
@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 CLAUDE_MODEL: str = os.environ.get("CLAUDE_MODEL", "claude-opus-4-7")
 
 CHUNK_SIZE: int = 8
-MAX_SENTENCES: int = 120
+MAX_SENTENCES: int = 160
 
 
 class Pipeline:
@@ -392,7 +392,7 @@ class Pipeline:
         # No cap — IMAGE_GROUP_SIZE=3 controls image count (~40 images / 9-min video, ~9s holds)
             log.info(f"[{vid_id[:8]}] Capped images: {len(unique)} (evenly sampled)")
         log.info(f"[{vid_id[:8]}] Cloudflare Flux: {len(unique)} images")
-        result = openrouter_images.generate_batch(unique, images_dir)
+        result = cloudflare_images.generate_batch(unique, images_dir)
         log.info(
             f"[{vid_id[:8]}] Images done: success={result['success']} "
             f"skipped={result.get('skipped', 0)} failed={result['failed']}"
