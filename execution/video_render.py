@@ -13,10 +13,10 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-OUT_W: int = 1920
-OUT_H: int = 1080
-FPS: int = 25
-CRF: int = 20
+OUT_W: int = 1280
+OUT_H: int = 720
+FPS: int = 24
+CRF: int = 24
 
 
 class RenderError(RuntimeError):
@@ -74,9 +74,10 @@ def _render_slide(img_path: Path, audio_path: Path, out_path: Path) -> bool:
             "-loop", "1", "-i", str(img_path),
             "-i", str(audio_path),
             "-vf", vf,
-            "-c:v", "libx264", "-preset", "medium", "-crf", str(CRF),
+            "-c:v", "libx264", "-preset", "ultrafast", "-crf", str(CRF),
+            "-threads", "1",
             "-pix_fmt", "yuv420p",
-            "-c:a", "aac", "-b:a", "192k",
+            "-c:a", "aac", "-b:a", "96k",
             "-shortest", "-movflags", "+faststart",
             str(out_path),
         ],
@@ -152,7 +153,7 @@ def render_video(
 
     merge_proc = subprocess.run(
         [_ffmpeg(), "-y", "-f", "concat", "-safe", "0", "-i", str(concat_list),
-         "-c", "copy", "-fflags", "+genpts", str(output_path)],
+         "-c", "copy", "-fflags", "+genpts", "-threads", "1", str(output_path)],
         capture_output=True, text=True, timeout=600,
     )
     if merge_proc.returncode != 0:
