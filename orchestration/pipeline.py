@@ -15,11 +15,6 @@ from typing import Any
 import anthropic
 
 from config.settings import Settings
-from execution.agents.agent_runner import run_agent_pipeline, transform_scene
-from execution.services.tts_edge import generate_sentence_audio
-from execution.services.image_replicate import generate_batch
-from execution.services.video_render import render_video
-from execution.services.youtube_upload import upload_video
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +46,11 @@ def process_video(
     record_id = video["id"]
     work_dir = Path(tempfile.mkdtemp(prefix=f"yt_{video_id}_"))
 
+    from execution.agents.agent_runner import run_agent_pipeline, transform_scene
+    from execution.services.tts_edge import generate_sentence_audio
+    from execution.services.image_replicate import generate_batch
+    from execution.services.video_render import render_video
+    from execution.services.youtube_upload import upload_video
     logger.info("=== PIPELINE START: %s ===", video_id)
     logger.info("Work dir: %s", work_dir)
 
