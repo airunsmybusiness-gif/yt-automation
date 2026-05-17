@@ -86,7 +86,7 @@ def run_agent_pipeline(
     analyzer_raw = _call_agent(client, analyzer_prompt, analyzer_input, MODEL_HEAVY)
 
     # Save to DB
-    supabase_client.table("yt_viral_analyzer_results").insert({
+    supabase_client.table("yt_viral_analyzer_results").upsert({
         "video_record_id": record_id,
         "video_id": video["video_id"],
         "human_readable_summary": {"raw_output": analyzer_raw},
@@ -103,7 +103,7 @@ def run_agent_pipeline(
     strategist_raw = _call_agent(client, strategist_prompt, strategist_input, MODEL_HEAVY)
 
     # Save to DB
-    supabase_client.table("yt_strategist_results").insert({
+    supabase_client.table("yt_strategist_results").upsert({
         "video_record_id": record_id,
         "video_id": video["video_id"],
         "strategy_brief": {"raw_output": strategist_raw},
