@@ -146,9 +146,12 @@ def trigger_pipeline(video_id: str) -> dict:
     if not resp.data:
         return {"error": f"Video {video_id} not found"}
 
-    from orchestration.pipeline import process_video
-    import logging
-    logging.getLogger("trigger").info("TRIGGER: starting pipeline for %s", video_id)
-    success = process_video(supabase, settings, resp.data[0])
-    logging.getLogger("trigger").info("TRIGGER: pipeline result=%s", success)
-    return {"status": "complete" if success else "failed", "video_id": video_id}
+    try:
+        from orchestration.pipeline import process_video
+        logger.info("TRIGGER: starting pipeline for %s", video_id)
+        success = process_video(supabase, settings, resp.data[0])
+        logger.info("TRIGGER: pipeline result=%s", success)
+        return {"status": "complete" if success else "failed", "video_id": video_id}
+    except Exception as e:
+        logger.error("TRIGGER CRASH: %s", e, exc_info=True)
+        return {"status": "crashed", "error": str(e), "video_id": video_id}
