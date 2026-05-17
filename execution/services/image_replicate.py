@@ -9,7 +9,7 @@ import replicate
 
 logger = logging.getLogger(__name__)
 
-COST_PER_IMAGE = 0.03
+COST_PER_IMAGE = 0.003
 MIN_VALID_BYTES = 5_000  # 5KB minimum for a real image
 RATE_LIMIT_DELAY = 2.0   # seconds between requests
 
@@ -37,14 +37,14 @@ def generate_single_image(
 
     try:
         output = replicate.run(
-            "black-forest-labs/flux-dev",
+            "stability-ai/stable-diffusion:ac732df83cea7fff18b8472768c88ad041fa750ff7682a21affe81863cbe77e4",
             input={
                 "prompt": full_prompt,
                 "width": 1280,
                 "height": 720,
                 "num_outputs": 1,
-                "output_format": "jpg",
-                "output_quality": 90,
+                "negative_prompt": "blurry, ugly, text, watermark, low quality",
+                "num_inference_steps": 25,
             },
         )
 
