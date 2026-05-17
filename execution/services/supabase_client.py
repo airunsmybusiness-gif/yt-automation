@@ -24,7 +24,7 @@ def create_supabase_client(settings: Settings) -> Client:
         SystemExit: If connection fails.
     """
     try:
-        client = create_client(settings.supabase_url, settings.supabase_key)
+        client = create_client(settings.supabase_url, settings.supabase_service_key)
         # Verify connection with a lightweight query
         client.table("yt_workflow_settings").select("id").limit(1).execute()
         logger.info("Supabase connection verified")
