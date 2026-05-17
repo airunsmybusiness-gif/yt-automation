@@ -1,105 +1,215 @@
-from __future__ import annotations
-import logging, os, re, time
+"""Agent runner — sequential 4-agent chain via Anthropic SDK."""
+
+import json
+import logging
 from typing import Any
-from openai import OpenAI
-from supabase import create_client, Client
+
+import anthropic
 
 logger = logging.getLogger(__name__)
-SUPABASE_URL: str = os.environ["SUPABASE_URL"]
-SUPABASE_SERVICE_KEY: str = os.environ["SUPABASE_SERVICE_KEY"]
-OPENAI_API_KEY: str = os.environ["OPENAI_API_KEY"]
 
-AGENT_MODELS: dict[str, str] = {
-    "agent1_analyzer":      "gpt-4o",
-    "agent2_strategist":    "gpt-4o",
-    "agent3_script_writer": "gpt-4o",
-    "agent4_optimizer":     "gpt-4o",
-}
+MODEL_HEAVY = "claude-sonnet-4-20250514"  # agents 1-3
+MODEL_LIGHT = "claude-haiku-4-5-20251001"  # agent 4 (optimizer) + scene transforms
 
-_client: OpenAI | None = None
 
-def _get_client() -> OpenAI:
-    global _client
-    if _client is None:
-        _client = OpenAI(api_key=OPENAI_API_KEY)
-    return _client
+def _call_agent(
+    client: anthropic.Anthropic,
+    system_prompt: str,
+    user_message: str,
+    model: str,
+    max_tokens: int = 8192,
+) -> str:
+    """Call a single agent and return its text response."""
+    response = client.messages.create(
+        model=model,
+        max_tokens=max_tokens,
+        system=system_prompt,
+        messages=[{"role": "user", "content": user_message}],
+    )
+    return response.content[0].text
 
-def _get_supabase() -> Client:
-    return create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
-def _load_prompt(agent_name: str) -> str:
-    sb = _get_supabase()
-    rows = sb.table("yt_agent_prompts").select("prompt_content").eq("agent_name", agent_name).eq("is_active", True).execute()
-    if not rows.data:
-        raise ValueError(f"No prompt for '{agent_name}'")
-    return rows.data[0]["prompt_content"]
+def _load_prompt(supabase_client: Any, agent_name: str) -> str:
+    """Load active prompt from yt_agent_prompts."""
+    resp = (
+        supabase_client.table("yt_agent_prompts")
+        .select("prompt_content")
+        .eq("agent_name", agent_name)
+        .eq("is_active", True)
+        .order("version", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not resp.data:
+        raise ValueError(f"No active prompt found for agent: {agent_name}")
+    return resp.data[0]["prompt_content"]
 
-def _call_openai(agent_name: str, user_message: str, max_retries: int = 3) -> str:
-    model = AGENT_MODELS[agent_name]
-    system_prompt = _load_prompt(agent_name)
-    client = _get_client()
-    for attempt in range(1, max_retries + 1):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}],
-                max_tokens=8192,
-                temperature=0.7,
-            )
-            text = response.choices[0].message.content
-            if not text:
-                raise ValueError("Empty response")
-            logger.info("agent=%s attempt=%d chars=%d", agent_name, attempt, len(text))
-            return text
-        except Exception as exc:
-            logger.warning("agent=%s attempt=%d error=%s", agent_name, attempt, exc)
-            if attempt == max_retries:
-                raise
-            time.sleep(2 ** attempt)
-    raise RuntimeError(f"exhausted retries for {agent_name}")
 
-def run_agent(agent_name: str, user_message: str) -> str:
-    logger.info("Running agent: %s", agent_name)
-    return _call_openai(agent_name, user_message)
+def run_agent_pipeline(
+    supabase_client: Any,
+    anthropic_api_key: str,
+    video: dict[str, Any],
+    transcript: str,
+    comments: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Run all 4 agents sequentially. Returns final script sentences.
 
-def run_agent1_analyzer(supabase_client: Any, video: dict, transcript: str, comments: list) -> str:
-    return run_agent("agent1_analyzer", f"Transcript: {transcript}\nComments: {str(comments[:20])}\nTitle: {video.get('title','')}")
+    Args:
+        supabase_client: Supabase client.
+        anthropic_api_key: Anthropic API key.
+        video: yt_viral_videos record.
+        transcript: Source transcript text.
+        comments: List of comment dicts.
 
-def run_agent2_strategist(supabase_client: Any, video: dict, analyzer_result: str) -> str:
-    return run_agent("agent2_strategist", f"Viral analysis:\n{analyzer_result}\n\nTitle: {video.get('title','')}")
+    Returns:
+        Dict with analyzer_result, strategist_result, sentences (final script).
+    """
+    client = anthropic.Anthropic(api_key=anthropic_api_key)
+    record_id = video["id"]
 
-def run_agent3_script_writer(supabase_client: Any, video: dict, analyzer_result: str, strategist_result: str) -> str:
-    return run_agent("agent3_script_writer", f"Strategy:\n{strategist_result}\n\nAnalysis:\n{analyzer_result}\n\nTitle: {video.get('title','')}")
+    # Format comments for agent input
+    comments_text = "\n".join(
+        f"- {c.get('content', '')[:200]}" for c in comments[:50]
+    )
+    thumbnail_desc = video.get("thumbnail_description", "No description available")
 
-def run_agent4_optimizer(supabase_client: Any, video: dict, script: str) -> str:
-    return run_agent("agent4_optimizer", f"Script:\n{script}\n\nTitle: {video.get('title','')}")
+    # --- Agent 1: Viral Analyzer ---
+    logger.info("Running Agent 1: Viral Analyzer")
+    analyzer_prompt = _load_prompt(supabase_client, "agent1_analyzer")
+    analyzer_input = (
+        f"VIDEO TITLE: {video.get('title', 'Unknown')}\n"
+        f"VIEWS: {video.get('views', 0)}\n"
+        f"THUMBNAIL DESCRIPTION: {thumbnail_desc}\n\n"
+        f"TRANSCRIPT:\n{transcript[:15000]}\n\n"
+        f"TOP COMMENTS:\n{comments_text}"
+    )
+    analyzer_raw = _call_agent(client, analyzer_prompt, analyzer_input, MODEL_HEAVY)
 
-def save_script_to_db(supabase_client: Any, viral_video_id: str, script_text: str) -> int:
-    import json as _json
-    sentences = []
-    # Try to parse JSON array from GPT output
+    # Save to DB
+    supabase_client.table("yt_viral_analyzer_results").insert({
+        "video_record_id": record_id,
+        "video_id": video["video_id"],
+        "human_readable_summary": {"raw_output": analyzer_raw},
+    }).execute()
+
+    # --- Agent 2: Strategist ---
+    logger.info("Running Agent 2: Strategist")
+    strategist_prompt = _load_prompt(supabase_client, "agent2_strategist")
+    strategist_input = (
+        f"VIRAL ANALYSIS:\n{analyzer_raw}\n\n"
+        f"ORIGINAL VIDEO TITLE: {video.get('title', 'Unknown')}\n"
+        f"ORIGINAL DESCRIPTION: {video.get('description', '')[:2000]}"
+    )
+    strategist_raw = _call_agent(client, strategist_prompt, strategist_input, MODEL_HEAVY)
+
+    # Save to DB
+    supabase_client.table("yt_strategist_results").insert({
+        "video_record_id": record_id,
+        "video_id": video["video_id"],
+        "strategy_brief": {"raw_output": strategist_raw},
+    }).execute()
+
+    # --- Agent 3: Script Writer ---
+    logger.info("Running Agent 3: Script Writer")
+    script_prompt = _load_prompt(supabase_client, "agent3_script_writer")
+    script_input = (
+        f"VIRAL ANALYSIS:\n{analyzer_raw}\n\n"
+        f"STRATEGY BRIEF:\n{strategist_raw}\n\n"
+        f"SOURCE TRANSCRIPT:\n{transcript[:10000]}"
+    )
+    script_raw = _call_agent(client, script_prompt, script_input, MODEL_HEAVY)
+
+    # --- Agent 4: Optimizer ---
+    logger.info("Running Agent 4: Optimizer")
+    optimizer_prompt = _load_prompt(supabase_client, "agent4_optimizer")
+    optimized_raw = _call_agent(client, optimizer_prompt, script_raw, MODEL_LIGHT)
+
+    # Parse sentences (expect numbered lines or JSON array)
+    sentences = _parse_sentences(optimized_raw)
+    logger.info("Agent pipeline complete: %d sentences", len(sentences))
+
+    # Save sentences to yt_scripts
+    for sent in sentences:
+        supabase_client.table("yt_scripts").insert({
+            "viral_video_id": record_id,
+            "sentence_number": sent["sentence_number"],
+            "sentence_text": sent["sentence_text"],
+            "section": sent.get("section", "body"),
+        }).execute()
+
+    return {
+        "analyzer_result": analyzer_raw,
+        "strategist_result": strategist_raw,
+        "sentences": sentences,
+    }
+
+
+def transform_scene(
+    client: anthropic.Anthropic,
+    sentence_texts: list[str],
+) -> str:
+    """Transform script sentences into a visual scene description for image gen.
+
+    Args:
+        client: Anthropic client.
+        sentence_texts: 2-3 sentences to visualize.
+
+    Returns:
+        Scene description string for image prompt.
+    """
+    combined = " ".join(sentence_texts)
+    prompt = (
+        "Transform this script excerpt into a single visual scene description "
+        "for an AI image generator. Describe what the viewer should SEE — "
+        "not the words being spoken. Be specific about composition, lighting, "
+        "mood, and visual elements. One paragraph, under 100 words.\n\n"
+        f"SCRIPT: {combined}"
+    )
+    return _call_agent(
+        client,
+        "You are a visual director for a psychology YouTube channel.",
+        prompt,
+        MODEL_LIGHT,
+        max_tokens=200,
+    )
+
+
+def _parse_sentences(raw_output: str) -> list[dict[str, Any]]:
+    """Parse agent output into numbered sentences."""
+    # Try JSON first
     try:
-        clean = script_text.strip()
-        match = re.search(r'\[.*\]', clean, re.DOTALL)
-        if match:
-            items = _json.loads(match.group())
-            if isinstance(items, list) and items and "sentence_text" in items[0]:
-                sentences = [(item["sentence_number"], item["sentence_text"]) for item in items]
-    except Exception:
+        data = json.loads(raw_output)
+        if isinstance(data, list):
+            return [
+                {
+                    "sentence_number": i + 1,
+                    "sentence_text": (
+                        item.get("sentence_text") or item.get("text") or str(item)
+                    ),
+                    "section": item.get("section", "body"),
+                }
+                for i, item in enumerate(data)
+            ]
+    except (json.JSONDecodeError, TypeError):
         pass
-    # Fallback: split by sentences
-    if not sentences:
-        parts = [s.strip() for s in re.split(r'(?<=[.!?])\s+', script_text) if s.strip()]
-        sentences = [(i+1, s) for i, s in enumerate(parts)]
-    for num, text in sentences:
-        supabase_client.table("yt_scripts").upsert({"viral_video_id": viral_video_id, "sentence_number": num, "sentence_text": text}, on_conflict="viral_video_id, sentence_number").execute()
-    logger.info("Saved %d sentences for %s", len(sentences), viral_video_id)
-    return len(sentences)
 
-def run_pipeline(viral_video_id: str, input_data: dict[str, Any]) -> dict[str, Any]:
-    results: dict[str, Any] = {}
-    results["agent1_analyzer"] = run_agent("agent1_analyzer", f"Transcript: {input_data.get('transcript','')}\nTitle: {input_data.get('title','')}")
-    results["agent2_strategist"] = run_agent("agent2_strategist", f"Analysis:\n{results['agent1_analyzer']}\nTitle: {input_data.get('title','')}")
-    results["agent3_script_writer"] = run_agent("agent3_script_writer", f"Strategy:\n{results['agent2_strategist']}\nTranscript:\n{input_data.get('transcript','')}")
-    results["agent4_optimizer"] = run_agent("agent4_optimizer", f"Script:\n{results['agent3_script_writer']}")
-    return results
+    # Fall back to line parsing
+    sentences = []
+    for line in raw_output.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # Remove leading numbers: "1. Text" or "1) Text" or "1: Text"
+        for sep in [". ", ") ", ": "]:
+            if line[0].isdigit() and sep in line:
+                idx = line.index(sep)
+                line = line[idx + len(sep):]
+                break
+        if len(line) > 5:  # skip tiny fragments
+            sentences.append({
+                "sentence_number": len(sentences) + 1,
+                "sentence_text": line,
+                "section": "body",
+            })
+
+    return sentences

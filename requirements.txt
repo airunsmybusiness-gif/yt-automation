@@ -1,37 +1,28 @@
 # Core
-fastapi>=0.115.0
-uvicorn[standard]>=0.30.0
-pydantic>=2.0
-
-# Scheduler
-apscheduler>=3.10.0
+fastapi==0.115.*
+uvicorn[standard]==0.34.*
+apscheduler==3.10.*
 
 # Database
-supabase>=2.0.0
-
-# YouTube + Google APIs
-google-api-python-client>=2.100.0
-google-auth>=2.25.0
-google-auth-oauthlib>=1.2.0
-google-auth-httplib2>=0.2.0
-
-# HTTP
-requests>=2.31.0
-httpx>=0.27.0
+supabase==2.*
 
 # AI
-anthropic>=0.40.0
+anthropic==0.52.*
+replicate==1.*
 
-# Cloud (Phase 3+)
-google-cloud-storage>=2.14.0
-google-cloud-aiplatform>=1.40.0
+# TTS
+edge-tts==7.*
 
-# Testing
-pytest>=8.0
-pytest-asyncio>=0.23.0
-pytest-cov>=5.0
-google-cloud-aiplatform>=1.38.0
-elevenlabs>=1.50.0
-vertexai>=1.38.0
-openai>=1.0.0
-google-generativeai>=0.8.0
+# YouTube
+google-api-python-client==2.115.*
+google-auth==2.27.*
+
+# Email
+google-auth-oauthlib==1.*
+
+# Image processing (thumbnail text overlay)
+Pillow==11.*
+
+# Utilities
+python-dotenv==1.*
+requests==2.31.*

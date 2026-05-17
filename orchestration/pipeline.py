@@ -1,365 +1,334 @@
-"""Full pipeline orchestrator — end-to-end from approval to YouTube upload.
+"""Pipeline orchestrator — the single function that runs an entire video.
 
-Phase 2: Data collection + Agent pipeline
-Phase 3: TTS audio + Image generation
-Phase 4: Video render + YouTube upload + notification
-
-This is the orchestration layer: it reasons and routes, never computes.
+This is the heart of the automation. Called by process_next scheduler job
+when a video has suitable=true and status=queued.
 """
 
+import json
 import logging
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import shutil
+import tempfile
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from execution.agents.agent_runner import (
-    run_agent1_analyzer,
-    run_agent2_strategist,
-    run_agent3_script_writer,
-    run_agent4_optimizer,
-    save_script_to_db,
-)
-from execution.services.comment_scraper import scrape_comments
-from execution.services.gmail_service import send_error_alert
-from execution.services.supabase_client import update_viral_video
-from execution.services.thumbnail_describer import describe_thumbnail
-from execution.services.transcript_service import fetch_transcript
+import anthropic
+
+from config.settings import Settings
+from execution.agents.agent_runner import run_agent_pipeline, transform_scene
+from execution.services.tts_edge import generate_sentence_audio
+from execution.services.image_replicate import generate_batch
+from execution.services.video_render import render_video
+from execution.services.youtube_upload import upload_video
 
 logger = logging.getLogger(__name__)
 
-DATA_COLLECTION_TIMEOUT = 300  # 5 minutes
 
-
-def run_pipeline_for_video(
+def process_video(
     supabase_client: Any,
-    settings: Any,
+    settings: Settings,
     video: dict[str, Any],
 ) -> bool:
     """Run the full pipeline for one approved video.
 
-    Phases:
-        2. Data collection + Agent pipeline
-        3. TTS + Image generation
-        4. Video render + YouTube upload
+    Stages:
+        1. Data collection (transcript, comments, thumbnail desc)
+        2. Agent pipeline (analyzer → strategist → script → optimizer)
+        3. Media generation (TTS + images, cost-capped)
+        4. Render (FFmpeg, crossfade transitions)
+        5. Upload (YouTube + thumbnail)
+        6. Cleanup
 
     Args:
         supabase_client: Supabase client.
-        settings: App settings.
-        video: yt_viral_videos record (suitable=true).
+        settings: Validated settings.
+        video: yt_viral_videos record with suitable=true.
 
     Returns:
-        True if pipeline completed successfully.
+        True if pipeline completed and video uploaded.
     """
     video_id = video["video_id"]
     record_id = video["id"]
+    work_dir = Path(tempfile.mkdtemp(prefix=f"yt_{video_id}_"))
 
     logger.info("=== PIPELINE START: %s ===", video_id)
-
-    # Step 1: Mark production started
-    update_viral_video(supabase_client, record_id, {
-        "status": "production_started",
-        "production_started_at": datetime.now(timezone.utc).isoformat(),
-    })
-
-    # ===== PHASE 2: Data Collection + Agents =====
-    try:
-        transcript, comments = _run_data_collection(supabase_client, video)
-    except Exception as e:
-        _handle_pipeline_error(supabase_client, settings, video, "Data Collection", e)
-        return False
-
-    if not transcript:
-        _handle_pipeline_error(
-            supabase_client, settings, video, "Data Collection",
-            Exception("Transcript unavailable — cannot proceed"),
-        )
-        return False
+    logger.info("Work dir: %s", work_dir)
 
     try:
-        # FORCE SKIP: scripts already exist for test video
-        scripts_exist = supabase_client.table("yt_scripts").select("id").eq("viral_video_id", video["id"]).limit(1).execute()
-        if scripts_exist.data:
-            logger.info("FORCE SKIP AGENT PIPELINE for %s", video["id"])
-        else:
-            _run_agent_pipeline(supabase_client, video, transcript, comments)
-    except Exception as e:
-        _handle_pipeline_error(supabase_client, settings, video, "Agent Pipeline", e)
-        return False
-
-    # ===== PHASE 3: TTS + Images =====
-    try:
-        _run_media_generation(supabase_client, video)
-    except Exception as e:
-        _handle_pipeline_error(supabase_client, settings, video, "Media Generation", e)
-        return False
-
-    # ===== PHASE 4: Render + Upload =====
-    try:
-        _run_render_and_upload(supabase_client, settings, video)
-    except Exception as e:
-        _handle_pipeline_error(supabase_client, settings, video, "Render & Upload", e)
-        return False
-
-    logger.info("=== PIPELINE COMPLETE: %s ===", video_id)
-    return True
-
-
-# ---------------------------------------------------------------------------
-# Phase 2: Data Collection
-# ---------------------------------------------------------------------------
-
-def _run_data_collection(
-    supabase_client: Any,
-    video: dict[str, Any],
-) -> tuple[str | None, list[dict[str, Any]]]:
-    """Run 3 parallel data collection jobs."""
-    record_id = video["id"]
-    video_id = video["video_id"]
-    thumbnail_url = video.get("thumbnail", "")
-
-    transcript_result: str | None = None
-    errors: list[str] = []
-
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        futures = {
-            executor.submit(
-                fetch_transcript, supabase_client, record_id, video_id
-            ): "transcript",
-            executor.submit(
-                scrape_comments, supabase_client, record_id, video_id
-            ): "comments",
-            executor.submit(
-                describe_thumbnail, supabase_client, record_id, thumbnail_url
-            ): "thumbnail",
-        }
-
-        for future in as_completed(futures, timeout=DATA_COLLECTION_TIMEOUT):
-            job_name = futures[future]
-            try:
-                result = future.result()
-                if job_name == "transcript":
-                    transcript_result = result
-                logger.info("Data collection '%s' completed", job_name)
-            except Exception as e:
-                errors.append(f"{job_name}: {e}")
-                logger.error("Data collection '%s' failed: %s", job_name, e)
-
-    # Fetch comments from DB
-    resp = (
-        supabase_client.table("yt_comments")
-        .select("*")
-        .eq("video_record_id", record_id)
-        .execute()
-    )
-    comments_result = resp.data or []
-
-    if errors:
-        logger.warning("Data collection errors: %s", errors)
-
-    return transcript_result, comments_result
-
-
-# ---------------------------------------------------------------------------
-# Phase 2: Agent Pipeline
-# ---------------------------------------------------------------------------
-
-def _run_agent_pipeline(
-    supabase_client: Any,
-    video: dict[str, Any],
-    transcript: str,
-    comments: list[dict[str, Any]],
-) -> None:
-    """Run 4 sequential agents. Skips agents whose results already exist."""
-    record_id = video["id"]
-    
-    # HARD SKIP: if scripts exist, return immediately
-    scripts_check = supabase_client.table("yt_scripts").select("id").eq("viral_video_id", record_id).limit(1).execute()
-    if scripts_check.data:
-        logger.info("HARD SKIP: %d scripts found for %s, jumping to media gen", len(scripts_check.data), record_id)
-        return
-
-    resp = (
-        supabase_client.table("yt_viral_videos")
-        .select("*")
-        .eq("id", record_id)
-        .limit(1)
-        .execute()
-    )
-    video = resp.data[0] if resp.data else video
-
-    existing_scripts = (
-        supabase_client.table("yt_scripts")
-        .select("id")
-        .eq("viral_video_id", record_id)
-        .limit(1)
-        .execute()
-    )
-    if existing_scripts.data and len(existing_scripts.data) > 0:
-        logger.info("Scripts already exist for %s, skipping agent pipeline entirely", record_id)
-        return
-
-    existing_analyzer = (
-        supabase_client.table("yt_viral_analyzer_results")
-        .select("*")
-        .eq("video_record_id", record_id)
-        .limit(1)
-        .execute()
-    )
-    if existing_analyzer.data:
-        logger.info("Agent 1 result exists, reusing")
-        analyzer_result = existing_analyzer.data[0]
-    else:
-        analyzer_result = run_agent1_analyzer(supabase_client, video, transcript, comments)
-
-    existing_strategist = (
-        supabase_client.table("yt_strategist_results")
-        .select("*")
-        .eq("video_record_id", record_id)
-        .limit(1)
-        .execute()
-    )
-    if existing_strategist.data:
-        logger.info("Agent 2 result exists, reusing")
-        strategist_result = existing_strategist.data[0]
-    else:
-        strategist_result = run_agent2_strategist(supabase_client, video, analyzer_result)
-
-    sentences = run_agent3_script_writer(supabase_client, video, analyzer_result, strategist_result)
-    optimized = run_agent4_optimizer(supabase_client, video, sentences)
-    count = save_script_to_db(supabase_client, record_id, optimized)
-    logger.info("Agent pipeline complete: %d final sentences", count)
-
-
-# ---------------------------------------------------------------------------
-# Phase 3: Media Generation
-# ---------------------------------------------------------------------------
-
-def _run_media_generation(
-    supabase_client: Any,
-    video: dict[str, Any],
-) -> None:
-    """Run TTS and image generation in parallel."""
-    from execution.services.image_service import run_image_pipeline
-    from execution.services.tts_service import run_tts_pipeline
-
-    record_id = video["id"]
-    video_id = video["video_id"]
-
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        tts_future = executor.submit(
-            run_tts_pipeline, supabase_client, record_id, video_id
-        )
-        img_future = executor.submit(
-            run_image_pipeline, supabase_client, record_id, video_id
-        )
-
-        tts_count = tts_future.result(timeout=1800)
-        img_batch = img_future.result(timeout=1800)
-
-    logger.info(
-        "Media generation: %d audio files, image batch=%s",
-        tts_count, img_batch,
-    )
-
-    if tts_count == 0:
-        raise RuntimeError("TTS produced 0 audio files")
-    if not img_batch:
-        raise RuntimeError("Image batch submission failed")
-
-    # Wait for image batch to complete
-    _wait_for_image_batch(supabase_client, img_batch)
-
-
-def _wait_for_image_batch(
-    supabase_client: Any,
-    batch_name: str,
-    max_wait_seconds: int = 900,
-    poll_interval: int = 30,
-) -> None:
-    """No-op: synchronous CF returns only when all images are generated."""
-    logger.info("Image batch already complete (synchronous CF): %s", batch_name)
-    return
-
-
-# ---------------------------------------------------------------------------
-# Phase 4: Render + Upload
-# ---------------------------------------------------------------------------
-
-def _run_render_and_upload(
-    supabase_client: Any,
-    settings: Any,
-    video: dict[str, Any],
-) -> None:
-    """Render video, generate thumbnail, upload to YouTube, notify."""
-    from execution.services.video_render_service import (
-        generate_thumbnail,
-        render_video,
-        upload_to_youtube,
-    )
-
-    record_id = video["id"]
-    video_id = video["video_id"]
-
-    gcs_url = render_video(supabase_client, record_id, video_id)
-    if not gcs_url:
-        raise RuntimeError("Video rendering failed")
-
-    thumb_uri = generate_thumbnail(supabase_client, record_id, video_id)
-    if not thumb_uri:
-        logger.warning("Thumbnail failed, uploading without it")
-
-    yt_url = upload_to_youtube(supabase_client, record_id, video_id)
-    if not yt_url:
-        raise RuntimeError("YouTube upload failed")
-
-    # Send notification
-    try:
-        send_error_alert(
-            settings,
-            f"Video Published: {video.get('title', 'Unknown')[:60]}",
-            (
-                f"Your new video is ready!\n\n"
-                f"Title: {video.get('title', 'N/A')}\n"
-                f"YouTube URL: {yt_url}\n"
-                f"Source: https://youtube.com/watch?v={video['video_id']}\n"
-                f"Status: Private (review before making public)"
-            ),
-        )
-    except Exception as e:
-        logger.error("Failed to send completion notification: %s", e)
-
-
-# ---------------------------------------------------------------------------
-# Error handler
-# ---------------------------------------------------------------------------
-
-def _handle_pipeline_error(
-    supabase_client: Any,
-    settings: Any,
-    video: dict[str, Any],
-    stage: str,
-    error: Exception,
-) -> None:
-    """Handle pipeline failure: log, update DB, alert."""
-    video_id = video.get("video_id", "unknown")
-    record_id = video.get("id")
-
-    logger.error(
-        "ANNEALING: Pipeline failed at '%s' for %s: %s",
-        stage, video_id, error, exc_info=True,
-    )
-
-    if record_id:
-        update_viral_video(supabase_client, record_id, {
-            "production_notes": f"Failed at {stage}: {str(error)[:500]}",
+        # Mark production started
+        _update_video(supabase_client, record_id, {
+            "status": "production_started",
+            "production_started_at": _now_iso(),
         })
 
-    try:
-        send_error_alert(
-            settings,
-            f"Pipeline Failed: {stage}",
-            f"Video: {video_id}\nStage: {stage}\nError: {error}",
+        # --- STAGE 1: Data Collection ---
+        transcript = _collect_transcript(supabase_client, video)
+        if not transcript:
+            raise RuntimeError("Transcript unavailable from all sources")
+
+        comments = _collect_comments(supabase_client, video)
+
+        # --- STAGE 2: Agent Pipeline ---
+        agent_result = run_agent_pipeline(
+            supabase_client,
+            settings.anthropic_api_key,
+            video,
+            transcript,
+            comments,
         )
+        sentences = agent_result["sentences"]
+        strategist_raw = agent_result["strategist_result"]
+
+        if len(sentences) < 20:
+            raise RuntimeError(f"Script too short: {len(sentences)} sentences")
+
+        # --- STAGE 3: Media Generation ---
+        # 3a: TTS — one audio per sentence
+        audio_dir = work_dir / "audio"
+        audio_results = generate_sentence_audio(
+            sentences, audio_dir, settings.edge_tts_voice,
+        )
+        if len(audio_results) < len(sentences) * 0.8:
+            logger.warning(
+                "TTS coverage low: %d/%d",
+                len(audio_results), len(sentences),
+            )
+
+        # 3b: Pair sentences for images (2 per image)
+        pairs = _pair_sentences(audio_results)
+
+        # 3c: Scene transform + image generation
+        image_dir = work_dir / "images"
+        anthropic_client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+
+        image_jobs = []
+        for pair in pairs:
+            scene_texts = [s["text"] for s in pair["sentences"]]
+            scene_prompt = transform_scene(anthropic_client, scene_texts)
+            image_jobs.append({
+                "pair_number": pair["pair_number"],
+                "prompt": scene_prompt,
+            })
+
+        img_result = generate_batch(
+            image_jobs, image_dir,
+            max_cost=settings.max_cost_per_video,
+            max_images=settings.max_images_per_video,
+        )
+
+        # Build render pairs (match images to audio)
+        render_pairs = _build_render_pairs(pairs, img_result["generated"], image_dir)
+
+        if not render_pairs:
+            raise RuntimeError("No render pairs — image generation failed")
+
+        # 3d: Thumbnail
+        thumbnail_path = _generate_thumbnail(
+            anthropic_client, strategist_raw, image_dir, settings,
+        )
+
+        # --- STAGE 4: Render ---
+        final_mp4 = render_video(render_pairs, work_dir)
+        logger.info("Final video: %s", final_mp4)
+
+        # --- STAGE 5: Upload ---
+        strategy = _parse_strategy(strategist_raw)
+        upload_result = upload_video(
+            video_path=final_mp4,
+            title=strategy.get("title", f"Psychology Facts: {video.get('title', 'Unknown')}")[:100],
+            description=strategy.get("description", "")[:5000],
+            tags=strategy.get("tags", ["psychology", "self improvement"])[:20],
+            category_id=strategy.get("category_id", "27"),
+            client_id=settings.youtube_client_id,
+            client_secret=settings.youtube_client_secret,
+            refresh_token=settings.youtube_refresh_token,
+            thumbnail_path=thumbnail_path,
+            privacy_status="private",
+        )
+
+        logger.info("Uploaded: %s", upload_result["video_url"])
+
+        # Save result
+        supabase_client.table("yt_results").insert({
+            "video_id": video["video_id"],
+            "gcs_video_url": upload_result["video_url"],
+            "thumbnail_link": str(thumbnail_path) if thumbnail_path else None,
+        }).execute()
+
+        _update_video(supabase_client, record_id, {
+            "status": "done",
+            "production_completed_at": _now_iso(),
+            "production_notes": json.dumps({
+                "youtube_id": upload_result["video_id"],
+                "youtube_url": upload_result["video_url"],
+                "sentences": len(sentences),
+                "images": len(img_result["generated"]),
+                "image_cost": img_result["total_cost"],
+                "thumbnail_uploaded": upload_result["thumbnail_uploaded"],
+            }),
+        })
+
+        logger.info("=== PIPELINE COMPLETE: %s → %s ===", video_id, upload_result["video_url"])
+        return True
+
     except Exception as e:
-        logger.error("Could not send error alert: %s", e)
+        logger.error("ANNEALING: Pipeline failed for %s: %s", video_id, e, exc_info=True)
+        _update_video(supabase_client, record_id, {
+            "production_notes": f"Failed: {str(e)[:500]}",
+        })
+        return False
+
+    finally:
+        # --- STAGE 6: Cleanup ---
+        try:
+            shutil.rmtree(work_dir)
+            logger.info("Cleaned up %s", work_dir)
+        except Exception as e:
+            logger.warning("Cleanup failed: %s", e)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _update_video(supabase_client: Any, record_id: str, fields: dict) -> None:
+    """Update a yt_viral_videos record."""
+    supabase_client.table("yt_viral_videos").update(fields).eq("id", record_id).execute()
+
+
+def _now_iso() -> str:
+    """Current UTC timestamp as ISO string."""
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
+    """Fetch transcript from yt_video_transcripts or generate via API."""
+    resp = (
+        supabase_client.table("yt_video_transcripts")
+        .select("content")
+        .eq("video_record_id", video["id"])
+        .eq("type", "source")
+        .limit(1)
+        .execute()
+    )
+    if resp.data and resp.data[0].get("content"):
+        return resp.data[0]["content"]
+
+    # TODO: Supadata API fallback, then Gemini fallback
+    logger.warning("No transcript found for %s", video["video_id"])
+    return None
+
+
+def _collect_comments(supabase_client: Any, video: dict) -> list[dict]:
+    """Fetch comments from yt_comments."""
+    resp = (
+        supabase_client.table("yt_comments")
+        .select("content, like_count")
+        .eq("video_record_id", video["id"])
+        .order("like_count", desc=True)
+        .limit(50)
+        .execute()
+    )
+    return resp.data or []
+
+
+def _pair_sentences(
+    audio_results: list[dict],
+) -> list[dict]:
+    """Group audio results into pairs of 2 for image assignment."""
+    pairs = []
+    pair_num = 1
+    for i in range(0, len(audio_results), 2):
+        chunk = audio_results[i:i + 2]
+        pairs.append({
+            "pair_number": pair_num,
+            "sentences": chunk,
+            "audio_paths": [s["path"] for s in chunk],
+        })
+        pair_num += 1
+    return pairs
+
+
+def _build_render_pairs(
+    pairs: list[dict],
+    generated_images: list[dict],
+    image_dir: Path,
+) -> list[dict]:
+    """Match generated images to audio pairs for rendering."""
+    img_map = {g["pair_number"]: g["path"] for g in generated_images}
+
+    # Find a fallback image (last successfully generated)
+    fallback_img = None
+    if generated_images:
+        fallback_img = generated_images[-1]["path"]
+
+    render_pairs = []
+    for pair in pairs:
+        img_path = img_map.get(pair["pair_number"])
+        if not img_path and fallback_img:
+            img_path = fallback_img
+        if not img_path:
+            logger.warning("No image for pair %d, skipping", pair["pair_number"])
+            continue
+
+        render_pairs.append({
+            "pair_number": pair["pair_number"],
+            "image_path": img_path,
+            "audio_paths": pair["audio_paths"],
+        })
+
+    return render_pairs
+
+
+def _generate_thumbnail(
+    anthropic_client: anthropic.Anthropic,
+    strategist_raw: str,
+    image_dir: Path,
+    settings: Settings,
+) -> Path | None:
+    """Generate thumbnail from Strategist brief via Replicate."""
+    try:
+        from execution.services.image_replicate import generate_single_image
+
+        # Extract thumbnail brief from strategist output
+        thumb_prompt = transform_scene(
+            anthropic_client,
+            [f"YouTube thumbnail for psychology video. {strategist_raw[:500]}"],
+        )
+
+        thumb_path = image_dir / "thumbnail.jpg"
+        result = generate_single_image(
+            thumb_prompt, thumb_path,
+            style_prefix=(
+                "YouTube thumbnail, bold dramatic composition, high contrast, "
+                "warm saturated colors, cinematic, 16:9, no text"
+            ),
+        )
+        return result
+    except Exception as e:
+        logger.error("Thumbnail generation failed: %s", e)
+        return None
+
+
+def _parse_strategy(strategist_raw: str) -> dict:
+    """Try to parse strategist output as JSON, fall back to defaults."""
+    try:
+        return json.loads(strategist_raw)
+    except (json.JSONDecodeError, TypeError):
+        pass
+
+    # Try to find JSON block in output
+    if "{" in strategist_raw and "}" in strategist_raw:
+        start = strategist_raw.index("{")
+        end = strategist_raw.rindex("}") + 1
+        try:
+            return json.loads(strategist_raw[start:end])
+        except json.JSONDecodeError:
+            pass
+
+    return {
+        "title": "Psychology Facts You Need to Know",
+        "description": "",
+        "tags": ["psychology", "self improvement", "mental health"],
+        "category_id": "27",
+    }
