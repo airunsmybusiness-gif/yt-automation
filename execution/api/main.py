@@ -65,7 +65,6 @@ def process_next() -> None:
     resp = (
         supabase.table("yt_viral_videos")
         .select("*")
-        .eq("suitable", True)
         .eq("status", "queued")
         .order("created_at", desc=False)
         .limit(1)
