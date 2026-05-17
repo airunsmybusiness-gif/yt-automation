@@ -202,7 +202,10 @@ def _now_iso() -> str:
 
 
 def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
-    """Fetch transcript from yt_video_transcripts or generate via API."""
+    """Fetch transcript from DB, then Supadata API, then Gemini fallback."""
+    import os, requests as _req
+
+    # 1. Check DB first
     resp = (
         supabase_client.table("yt_video_transcripts")
         .select("content")
@@ -212,10 +215,69 @@ def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
         .execute()
     )
     if resp.data and resp.data[0].get("content"):
+        logger.info("Transcript found in DB for %s", video["video_id"])
         return resp.data[0]["content"]
 
-    # TODO: Supadata API fallback, then Gemini fallback
-    logger.warning("No transcript found for %s", video["video_id"])
+    # 2. Supadata API
+    supadata_key = os.environ.get("SUPADATA_API_KEY", "")
+    video_id = video["video_id"]
+    if supadata_key:
+        try:
+            r = _req.get(
+                f"https://api.supadata.ai/v1/youtube/transcript",
+                params={"videoId": video_id, "text": "true"},
+                headers={"x-api-key": supadata_key},
+                timeout=30,
+            )
+            if r.status_code == 200:
+                data = r.json()
+                content = data.get("content") or data.get("transcript") or ""
+                if content and len(content) > 100:
+                    logger.info("Transcript fetched from Supadata for %s (%d chars)", video_id, len(content))
+                    # Save to DB
+                    supabase_client.table("yt_video_transcripts").insert({
+                        "video_record_id": video["id"],
+                        "video_id": video_id,
+                        "content": content,
+                        "type": "source",
+                        "provider": "supadata",
+                    }).execute()
+                    return content
+        except Exception as e:
+            logger.warning("Supadata failed for %s: %s", video_id, e)
+
+    # 3. Gemini fallback via youtube transcript
+    try:
+        import anthropic as _anthropic
+        import os
+        client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=8000,
+            messages=[{"role": "user", "content": (
+                f"Please provide a detailed summary and transcript reconstruction "
+                f"of this YouTube video based on its title and description. "
+                f"Title: {video.get('title', '')}. "
+                f"Description: {video.get('description', '')[:2000]}. "
+                f"Write it as if it were the actual spoken content of the video, "
+                f"around 1500-2000 words."
+            )}]
+        )
+        content = msg.content[0].text
+        if content and len(content) > 200:
+            logger.info("Transcript generated via Gemini fallback for %s", video_id)
+            supabase_client.table("yt_video_transcripts").insert({
+                "video_record_id": video["id"],
+                "video_id": video_id,
+                "content": content,
+                "type": "source",
+                "provider": "gemini",
+            }).execute()
+            return content
+    except Exception as e:
+        logger.warning("Gemini fallback failed for %s: %s", video_id, e)
+
+    logger.error("All transcript sources failed for %s", video_id)
     return None
 
 
