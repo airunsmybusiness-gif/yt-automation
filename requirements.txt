@@ -4,7 +4,9 @@ apscheduler==3.10.4
 supabase==2.9.1
 anthropic==0.39.0
 requests==2.32.3
+# GCP auth + GCS client (for reference image loading + Vertex AI polling)
 google-auth==2.35.0
 google-auth-oauthlib==1.2.1
 google-api-python-client==2.149.0
+google-cloud-storage==2.18.0
 python-dotenv==1.0.1

@@ -1,4 +1,6 @@
-google-cloud-storage
-supabase
-imageio-ffmpeg
-functions-framework
+functions-framework==3.*
+google-cloud-storage==2.14.*
+supabase==2.9.*
+imageio-ffmpeg==0.5.*
+Pillow==10.*
+numpy==1.*
