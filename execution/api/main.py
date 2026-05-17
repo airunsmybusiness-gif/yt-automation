@@ -147,5 +147,8 @@ def trigger_pipeline(video_id: str) -> dict:
         return {"error": f"Video {video_id} not found"}
 
     from orchestration.pipeline import process_video
+    import logging
+    logging.getLogger("trigger").info("TRIGGER: starting pipeline for %s", video_id)
     success = process_video(supabase, settings, resp.data[0])
+    logging.getLogger("trigger").info("TRIGGER: pipeline result=%s", success)
     return {"status": "complete" if success else "failed", "video_id": video_id}
