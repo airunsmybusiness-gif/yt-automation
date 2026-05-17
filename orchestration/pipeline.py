@@ -202,29 +202,32 @@ def _now_iso() -> str:
 
 
 def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
-    """Fetch transcript from DB, then Supadata API, then Gemini fallback."""
-    import os, requests as _req
+    """Fetch transcript from DB, then Supadata API, then Claude fallback."""
+    import os
+    import requests as _req
+
+    video_id = video["video_id"]
+    record_id = video["id"]
 
     # 1. Check DB first
     resp = (
         supabase_client.table("yt_video_transcripts")
         .select("content")
-        .eq("video_record_id", video["id"])
+        .eq("video_record_id", record_id)
         .eq("type", "source")
         .limit(1)
         .execute()
     )
     if resp.data and resp.data[0].get("content"):
-        logger.info("Transcript found in DB for %s", video["video_id"])
+        logger.info("Transcript found in DB for %s", video_id)
         return resp.data[0]["content"]
 
     # 2. Supadata API
     supadata_key = os.environ.get("SUPADATA_API_KEY", "")
-    video_id = video["video_id"]
     if supadata_key:
         try:
             r = _req.get(
-                f"https://api.supadata.ai/v1/youtube/transcript",
+                "https://api.supadata.ai/v1/youtube/transcript",
                 params={"videoId": video_id, "text": "true"},
                 headers={"x-api-key": supadata_key},
                 timeout=30,
@@ -233,41 +236,38 @@ def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
                 data = r.json()
                 content = data.get("content") or data.get("transcript") or ""
                 if content and len(content) > 100:
-                    logger.info("Transcript fetched from Supadata for %s (%d chars)", video_id, len(content))
-                    # Save to DB
+                    logger.info("Transcript from Supadata for %s (%d chars)", video_id, len(content))
                     supabase_client.table("yt_video_transcripts").insert({
-                        "video_record_id": video["id"],
+                        "video_record_id": record_id,
                         "video_id": video_id,
                         "content": content,
                         "type": "source",
                         "provider": "supadata",
                     }).execute()
                     return content
+            logger.warning("Supadata returned %d for %s", r.status_code, video_id)
         except Exception as e:
             logger.warning("Supadata failed for %s: %s", video_id, e)
 
-    # 3. Gemini fallback via youtube transcript
+    # 3. Claude fallback — reconstruct from title/description
     try:
-        import anthropic as _anthropic
-        import os
-        client = _anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
+        import anthropic as _anth
+        client = _anth.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=8000,
             messages=[{"role": "user", "content": (
-                f"Please provide a detailed summary and transcript reconstruction "
-                f"of this YouTube video based on its title and description. "
+                "Reconstruct a detailed spoken transcript for a YouTube video. "
+                "Write it as natural narration, 1500-2000 words. "
                 f"Title: {video.get('title', '')}. "
-                f"Description: {video.get('description', '')[:2000]}. "
-                f"Write it as if it were the actual spoken content of the video, "
-                f"around 1500-2000 words."
-            )}]
+                f"Description: {video.get('description', '')[:2000]}"
+            )}],
         )
         content = msg.content[0].text
         if content and len(content) > 200:
-            logger.info("Transcript generated via Gemini fallback for %s", video_id)
+            logger.info("Transcript via Claude fallback for %s (%d chars)", video_id, len(content))
             supabase_client.table("yt_video_transcripts").insert({
-                "video_record_id": video["id"],
+                "video_record_id": record_id,
                 "video_id": video_id,
                 "content": content,
                 "type": "source",
@@ -275,7 +275,7 @@ def _collect_transcript(supabase_client: Any, video: dict) -> str | None:
             }).execute()
             return content
     except Exception as e:
-        logger.warning("Gemini fallback failed for %s: %s", video_id, e)
+        logger.warning("Claude fallback failed for %s: %s", video_id, e)
 
     logger.error("All transcript sources failed for %s", video_id)
     return None
