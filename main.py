@@ -21,12 +21,13 @@ log = logging.getLogger("main")
 REQUIRED = [
     "SUPABASE_URL",
     "SUPABASE_SERVICE_KEY",
-    "GEMINI_API_KEY",
-    "GCP_PROJECT_ID",
     "ANTHROPIC_API_KEY",
     "API_SECRET",
-    "IMAGE_CF_URL",
-    "GENERATE_VIDEO_CF_URL",
+    "CLOUDFLARE_ACCOUNT_ID",
+    "CLOUDFLARE_API_TOKEN",
+    "YOUTUBE_CLIENT_ID",
+    "YOUTUBE_CLIENT_SECRET",
+    "YOUTUBE_REFRESH_TOKEN",
 ]
 missing = [k for k in REQUIRED if not os.environ.get(k)]
 if missing:
