@@ -159,7 +159,7 @@ class Pipeline:
             self._rebuild_image_jobs_if_needed(vid_id, existing.data)
             return existing.data
 
-        script_prompt = self._fetch_agent_prompt("agent3_script_writer")
+        script_prompt = self._fetch_agent_prompt("agent2_script_writer")
         prompt_filled = (
             script_prompt
             .replace("{{title}}", title)
@@ -180,7 +180,7 @@ class Pipeline:
         sentences = sentences[:MAX_SENTENCES]
         log.info(f"[{vid_id[:8]}] Script: {len(sentences)} sentences (cap {MAX_SENTENCES})")
 
-        image_prompt_template = self._fetch_agent_prompt("image_generator")
+        image_prompt_template = self._fetch_agent_prompt("agent3_image_prompter")
         rows_scripts = []
         rows_images = []
         for i, s in enumerate(sentences, start=1):
