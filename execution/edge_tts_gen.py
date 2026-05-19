@@ -1,70 +1,42 @@
 """
-ElevenLabs TTS — natural human voice for MindSeam videos.
-Model: eleven_turbo_v2_5 (~$0.05/1k chars)
+Microsoft Edge TTS — free neural voice for MindSeam videos.
+Voice: en-US-AndrewMultilingualNeural
 """
 from __future__ import annotations
 
+import asyncio
 import logging
-import os
-import time
 from pathlib import Path
 
-import requests
+import edge_tts
 
 log = logging.getLogger(__name__)
 
-VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel
-MODEL: str = "eleven_turbo_v2_5"
+VOICE: str = "en-US-AndrewMultilingualNeural"
 MAX_RETRIES: int = 3
-RETRY_DELAY_SEC: int = 5
 
 
 class EdgeTTSError(RuntimeError):
     pass
 
 
-def _call_elevenlabs(text: str) -> bytes:
-    api_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("EL_API_KEY")
-    if not api_key:
-        raise KeyError("Neither ELEVENLABS_API_KEY nor EL_API_KEY is set")
-    resp = requests.post(
-        f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
-        headers={
-            "xi-api-key": api_key,
-            "Content-Type": "application/json",
-            "Accept": "audio/mpeg",
-        },
-        json={
-            "text": text,
-            "model_id": MODEL,
-            "voice_settings": {
-                "stability": 0.5,
-                "similarity_boost": 0.8,
-                "style": 0.2,
-                "use_speaker_boost": True,
-            },
-        },
-        timeout=120,
-    )
-    resp.raise_for_status()
-    if len(resp.content) < 500:
-        raise EdgeTTSError(f"ElevenLabs returned too little audio: {len(resp.content)} bytes")
-    return resp.content
+async def _synthesize(text: str, output_path: Path) -> None:
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    communicate = edge_tts.Communicate(text, VOICE)
+    await communicate.save(str(output_path))
 
 
 def _generate_with_retry(text: str, output_path: Path) -> None:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            audio = _call_elevenlabs(text)
-            output_path.parent.mkdir(parents=True, exist_ok=True)
-            output_path.write_bytes(audio)
+            asyncio.run(_synthesize(text, output_path))
+            if output_path.stat().st_size < 500:
+                raise EdgeTTSError(f"Audio too small: {output_path.stat().st_size} bytes")
             return
         except Exception as exc:
             last_err = exc
             log.warning(f"TTS attempt {attempt + 1}/{MAX_RETRIES} failed: {exc}")
-            if attempt < MAX_RETRIES - 1:
-                time.sleep(RETRY_DELAY_SEC * (attempt + 1))
     raise EdgeTTSError(f"TTS failed after {MAX_RETRIES} retries: {last_err}")
 
 
