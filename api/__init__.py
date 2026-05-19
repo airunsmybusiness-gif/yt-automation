@@ -89,6 +89,16 @@ class TriggerBody(BaseModel):
     pass
 
 
+@router.post("/api/discovery/run", dependencies=[Depends(_auth)])
+async def run_discovery():
+    from orchestration.discovery import discover_and_queue
+    try:
+        count = discover_and_queue()
+        return {"status": "ok", "videos_queued": count}
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
 @router.post("/api/pipeline/trigger/{viral_video_id}", dependencies=[Depends(_auth)])
 async def trigger_video(viral_video_id: str):
     sb = _sb()
