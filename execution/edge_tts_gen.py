@@ -5,6 +5,7 @@ Voice: en-US-AndrewMultilingualNeural
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import logging
 from pathlib import Path
 
@@ -26,11 +27,24 @@ async def _synthesize(text: str, output_path: Path) -> None:
     await communicate.save(str(output_path))
 
 
+def _run_async(text: str, output_path: Path) -> None:
+    def _in_thread():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            loop.run_until_complete(_synthesize(text, output_path))
+        finally:
+            loop.close()
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+        ex.submit(_in_thread).result()
+
+
 def _generate_with_retry(text: str, output_path: Path) -> None:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            asyncio.run(_synthesize(text, output_path))
+            _run_async(text, output_path)
             if output_path.stat().st_size < 500:
                 raise EdgeTTSError(f"Audio too small: {output_path.stat().st_size} bytes")
             return
