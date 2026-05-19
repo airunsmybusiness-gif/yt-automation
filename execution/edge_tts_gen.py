@@ -1,16 +1,21 @@
 """
-Free TTS via gTTS (Google Translate) — no API key, no billing.
+ElevenLabs TTS — natural human voice for MindSeam videos.
+Model: eleven_turbo_v2_5 (~$0.05/1k chars)
 """
 from __future__ import annotations
 
 import logging
+import os
 import time
 from pathlib import Path
 
-from gtts import gTTS
+import requests
 
 log = logging.getLogger(__name__)
 
+API_KEY: str = os.environ["ELEVENLABS_API_KEY"]
+VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel
+MODEL: str = "eleven_turbo_v2_5"
 MAX_RETRIES: int = 3
 RETRY_DELAY_SEC: int = 5
 
@@ -19,15 +24,39 @@ class EdgeTTSError(RuntimeError):
     pass
 
 
+def _call_elevenlabs(text: str) -> bytes:
+    resp = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
+        headers={
+            "xi-api-key": API_KEY,
+            "Content-Type": "application/json",
+            "Accept": "audio/mpeg",
+        },
+        json={
+            "text": text,
+            "model_id": MODEL,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.8,
+                "style": 0.2,
+                "use_speaker_boost": True,
+            },
+        },
+        timeout=120,
+    )
+    resp.raise_for_status()
+    if len(resp.content) < 500:
+        raise EdgeTTSError(f"ElevenLabs returned too little audio: {len(resp.content)} bytes")
+    return resp.content
+
+
 def _generate_with_retry(text: str, output_path: Path) -> None:
     last_err: Exception | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            tts = gTTS(text=text, lang="en", slow=False)
+            audio = _call_elevenlabs(text)
             output_path.parent.mkdir(parents=True, exist_ok=True)
-            tts.save(str(output_path))
-            if not output_path.exists() or output_path.stat().st_size < 500:
-                raise EdgeTTSError("Output file too small")
+            output_path.write_bytes(audio)
             return
         except Exception as exc:
             last_err = exc
