@@ -13,7 +13,6 @@ import requests
 
 log = logging.getLogger(__name__)
 
-API_KEY: str = os.environ["ELEVENLABS_API_KEY"]
 VOICE_ID: str = os.environ.get("ELEVENLABS_VOICE_ID", "21m00Tcm4TlvDq8ikWAM")  # Rachel
 MODEL: str = "eleven_turbo_v2_5"
 MAX_RETRIES: int = 3
@@ -25,10 +24,11 @@ class EdgeTTSError(RuntimeError):
 
 
 def _call_elevenlabs(text: str) -> bytes:
+    api_key = os.environ["ELEVENLABS_API_KEY"]
     resp = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
         headers={
-            "xi-api-key": API_KEY,
+            "xi-api-key": api_key,
             "Content-Type": "application/json",
             "Accept": "audio/mpeg",
         },
