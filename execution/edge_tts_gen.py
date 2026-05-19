@@ -24,7 +24,9 @@ class EdgeTTSError(RuntimeError):
 
 
 def _call_elevenlabs(text: str) -> bytes:
-    api_key = os.environ["ELEVENLABS_API_KEY"]
+    api_key = os.environ.get("ELEVENLABS_API_KEY") or os.environ.get("EL_API_KEY")
+    if not api_key:
+        raise KeyError("Neither ELEVENLABS_API_KEY nor EL_API_KEY is set")
     resp = requests.post(
         f"https://api.elevenlabs.io/v1/text-to-speech/{VOICE_ID}",
         headers={
