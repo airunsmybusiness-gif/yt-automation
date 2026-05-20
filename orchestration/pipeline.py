@@ -145,7 +145,21 @@ class Pipeline:
         if existing.data:
             log.info(f"[{vid_id[:8]}] Transcript cached")
             return existing.data[0]["content"]
-        raise RuntimeError(f"No transcript for {yt_id}; populate yt_video_transcripts first")
+
+        log.info(f"[{vid_id[:8]}] Fetching transcript from YouTube for {yt_id}")
+        from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
+        try:
+            transcript_list = YouTubeTranscriptApi.get_transcript(yt_id, languages=["en", "en-US", "en-GB"])
+            content = " ".join(t["text"] for t in transcript_list)
+        except (TranscriptsDisabled, NoTranscriptFound) as exc:
+            raise RuntimeError(f"No transcript available for {yt_id}: {exc}")
+
+        self.sb.table("yt_video_transcripts").insert({
+            "video_record_id": vid_id,
+            "content": content,
+        }).execute()
+        log.info(f"[{vid_id[:8]}] Transcript fetched and cached ({len(content)} chars)")
+        return content
 
     def _fetch_comments(self, vid_id: str) -> list[str]:
         rows = (
