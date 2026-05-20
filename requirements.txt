@@ -10,3 +10,4 @@ google-api-python-client==2.149.0
 python-dotenv==1.0.1
 edge-tts==6.1.12
 gTTS==2.5.3
+replicate==0.34.1
