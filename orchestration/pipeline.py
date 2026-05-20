@@ -146,13 +146,24 @@ class Pipeline:
             log.info(f"[{vid_id[:8]}] Transcript cached")
             return existing.data[0]["content"]
 
-        log.info(f"[{vid_id[:8]}] Fetching transcript from YouTube for {yt_id}")
-        from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled, NoTranscriptFound
-        try:
-            transcript_list = YouTubeTranscriptApi.get_transcript(yt_id, languages=["en", "en-US", "en-GB"])
-            content = " ".join(t["text"] for t in transcript_list)
-        except (TranscriptsDisabled, NoTranscriptFound) as exc:
-            raise RuntimeError(f"No transcript available for {yt_id}: {exc}")
+        log.info(f"[{vid_id[:8]}] Fetching transcript via Supadata for {yt_id}")
+        supadata_key = os.environ.get("SUPADATA_API_KEY", "")
+        if not supadata_key:
+            raise RuntimeError(f"No transcript for {yt_id} and SUPADATA_API_KEY not set")
+        resp = requests.get(
+            "https://api.supadata.ai/v1/youtube/transcript",
+            params={"videoId": yt_id, "text": "true"},
+            headers={"x-api-key": supadata_key},
+            timeout=30,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"Supadata transcript fetch failed ({resp.status_code}): {resp.text[:200]}")
+        data = resp.json()
+        content = data.get("content") or " ".join(
+            chunk.get("text", "") for chunk in (data.get("chunks") or [])
+        )
+        if not content:
+            raise RuntimeError(f"Supadata returned empty transcript for {yt_id}")
 
         self.sb.table("yt_video_transcripts").insert({
             "video_record_id": vid_id,
