@@ -23,9 +23,13 @@ class ImageGenerationError(RuntimeError):
     pass
 
 
+NEGATIVE = "text, words, letters, numbers, typography, watermark, caption, subtitle, label"
+
+
 def _call_pollinations(prompt: str) -> bytes:
     encoded = urllib.parse.quote(prompt[:500])
-    url = f"https://image.pollinations.ai/prompt/{encoded}?width={WIDTH}&height={HEIGHT}&nologo=true&model=flux"
+    neg_encoded = urllib.parse.quote(NEGATIVE)
+    url = f"https://image.pollinations.ai/prompt/{encoded}?width={WIDTH}&height={HEIGHT}&nologo=true&model=flux&negative={neg_encoded}&seed={abs(hash(prompt)) % 999999}"
     resp = requests.get(url, timeout=120)
     resp.raise_for_status()
     if len(resp.content) < 1000:
