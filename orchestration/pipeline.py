@@ -58,6 +58,20 @@ class Pipeline:
         vid_id = video["id"]
         yt_id = video["video_id"]
         title = video["title"]
+
+        # Guard: never upload a video that already has a result
+        existing_result = (
+            self.sb.table("yt_results")
+            .select("video_id")
+            .eq("video_id", vid_id)
+            .limit(1)
+            .execute()
+        )
+        if existing_result.data:
+            log.warning(f"[{vid_id[:8]}] Already uploaded — marking done, skipping")
+            self._mark_status(vid_id, "done")
+            return
+
         log.info(f"[{vid_id[:8]}] Processing '{title[:60]}'")
 
         work_dir = Path(tempfile.mkdtemp(prefix=f"mindseam_{vid_id[:8]}_"))
@@ -107,7 +121,7 @@ class Pipeline:
             log.info(f"[{vid_id[:8]}] DONE -> {upload_result['url']}")
         except Exception as exc:
             log.exception(f"[{vid_id[:8]}] FAILED: {exc}")
-            self._mark_status(vid_id, "queued", notes=f"Error: {exc}")
+            self._mark_status(vid_id, "failed", notes=f"Error: {exc}")
         finally:
             try:
                 shutil.rmtree(work_dir)
